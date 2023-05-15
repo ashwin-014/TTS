@@ -243,10 +243,9 @@ class Synthesizer(object):
                 "You need to define either `text` (for sythesis) or a `reference_wav` (for voice conversion) to use the Coqui TTS API."
             )
 
-        if text:
-            sens = self.split_into_sentences(text)
-            print(" > Text splitted to sentences.")
-            print(sens)
+        sens = text
+        if not isinstance(sens, list):
+            raise Exception("Expecting a list of inputs")
 
         # handle multi-speaker
         speaker_embedding = None
@@ -317,53 +316,50 @@ class Synthesizer(object):
 
         use_gl = self.vocoder_model is None
 
+        # synthesize voice
         if not reference_wav:
-            for sen in sens:
-                # synthesize voice
-                outputs = synthesis(
-                    model=self.tts_model,
-                    text=sen,
-                    CONFIG=self.tts_config,
-                    use_cuda=self.use_cuda,
-                    speaker_id=speaker_id,
-                    style_wav=style_wav,
-                    style_text=style_text,
-                    use_griffin_lim=use_gl,
-                    d_vector=speaker_embedding,
-                    language_id=language_id,
-                )
-                waveform = outputs["wav"]
-                mel_postnet_spec = outputs["outputs"]["model_outputs"][0].detach().cpu().numpy()
-                if not use_gl:
-                    # denormalize tts output based on tts audio config
-                    mel_postnet_spec = self.tts_model.ap.denormalize(mel_postnet_spec.T).T
-                    device_type = "cuda" if self.use_cuda else "cpu"
-                    # renormalize spectrogram based on vocoder config
-                    vocoder_input = self.vocoder_ap.normalize(mel_postnet_spec.T)
-                    # compute scale factor for possible sample rate mismatch
-                    scale_factor = [
-                        1,
-                        self.vocoder_config["audio"]["sample_rate"] / self.tts_model.ap.sample_rate,
-                    ]
-                    if scale_factor[1] != 1:
-                        print(" > interpolating tts model output.")
-                        vocoder_input = interpolate_vocoder_input(scale_factor, vocoder_input)
-                    else:
-                        vocoder_input = torch.tensor(vocoder_input).unsqueeze(0)  # pylint: disable=not-callable
-                    # run vocoder model
-                    # [1, T, C]
-                    waveform = self.vocoder_model.inference(vocoder_input.to(device_type))
-                if self.use_cuda and not use_gl:
-                    waveform = waveform.cpu()
-                if not use_gl:
-                    waveform = waveform.numpy()
-                waveform = waveform.squeeze()
+            outputs = synthesis(
+                model=self.tts_model,
+                text=sens,
+                CONFIG=self.tts_config,
+                use_cuda=self.use_cuda,
+                speaker_id=speaker_id,
+                style_wav=style_wav,
+                style_text=style_text,
+                use_griffin_lim=use_gl,
+                d_vector=speaker_embedding,
+                language_id=language_id,
+            )
+            waveform = outputs["wav"]
 
+            if not use_gl:
+                device_type = "cuda" if self.use_cuda else "cpu"
+                vocoder_inputs = outputs["outputs"]["model_outputs"].transpose(1, 2)
+
+                # traced_vocoder = torch.jit.script(self.vocoder_model, vocoder_inputs.to(device_type))
+                # torch.jit.save(traced_vocoder, "traced_vocoder.pt")
+                # vocoder = torch.jit.load("traced_vocoder.pt")
+                # waveform = vocoder.inference(vocoder_inputs.to(device_type))
+                waveform = self.vocoder_model.inference(vocoder_inputs.to(device_type))
+
+                # pad of 5 mel frames before and after
+                # hops * mel frames = length of audio
+                attn = torch.sum(outputs["outputs"]["alignments"], dim=(-1, -2))
+                # TODO: get a permanent solution ta a mask level to silence 5 mel frames
+                attn = attn - 5
+                attn = (attn * int(waveform.shape[2]/attn.max())).to(torch.int)
+
+            if self.use_cuda and not use_gl:
+                waveform = waveform.cpu()
+            if not use_gl:
+                waveform = waveform.numpy()
+            for i, wave in enumerate(waveform):
                 # trim silence
                 if "do_trim_silence" in self.tts_config.audio and self.tts_config.audio["do_trim_silence"]:
-                    waveform = trim_silence(waveform, self.tts_model.ap)
+                    wave = trim_silence(wave, self.tts_model.ap)
 
-                wavs += list(waveform)
+                wave = wave.squeeze()[:attn[i]]
+                wavs += list(wave)
                 wavs += [0] * 10000
         else:
             # get the speaker embedding or speaker id for the reference wav file

@@ -1,5 +1,5 @@
 from typing import Dict
-
+from itertools import zip_longest
 import numpy as np
 import torch
 from torch import nn
@@ -181,11 +181,6 @@ def synthesis(
         assert len(language) == 1, "language_id must be a valid language"
         language_name = language[0]
 
-    # convert text to sequence of token IDs
-    text_inputs = np.asarray(
-        model.tokenizer.text_to_ids(text, language=language_name),
-        dtype=np.int32,
-    )
     # pass tensors to backend
     if speaker_id is not None:
         speaker_id = id_to_torch(speaker_id, cuda=use_cuda)
@@ -207,8 +202,11 @@ def synthesis(
             style_text = numpy_to_torch(style_text, torch.long, cuda=use_cuda)
             style_text = style_text.unsqueeze(0)
 
+    # convert text to sequence of token IDs
+    tok_ids = [model.tokenizer.text_to_ids(t, language=language_name) for t in text]
+    text_inputs = np.array(list(zip_longest(*tok_ids, fillvalue=0)), dtype=np.int32).T
     text_inputs = numpy_to_torch(text_inputs, torch.long, cuda=use_cuda)
-    text_inputs = text_inputs.unsqueeze(0)
+
     # synthesize voice
     outputs = run_model_torch(
         model,

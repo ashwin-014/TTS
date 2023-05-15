@@ -678,13 +678,22 @@ class ForwardTTS(BaseTTS):
             - g: [B, C]
         """
         g = self._set_speaker_input(aux_input)
-        x_lengths = torch.tensor(x.shape[1:2]).to(x.device)
-        x_mask = torch.unsqueeze(sequence_mask(x_lengths, x.shape[1]), 1).to(x.dtype).float()
+
+        # ----- Batching support -----
+        x_lengths = torch.tensor(x.shape[1]).repeat(x.shape[0]).to(x.device)
+        x_mask = torch.unsqueeze(sequence_mask(x_lengths, x.shape[1]), 1).float()
+
+        x_mask_original = sequence_mask(x_lengths, x.shape[1]).to(x.dtype)
+        x_mask_original = torch.where(x > 0, x_mask_original, False)
+        x_mask = torch.unsqueeze(x_mask_original, 1).float()
+        # ----------
+
         # encoder pass
         o_en, x_mask, g, _ = self._forward_encoder(x, x_mask, g)
         # duration predictor pass
         o_dr_log = self.duration_predictor(o_en, x_mask)
         o_dr = self.format_durations(o_dr_log, x_mask).squeeze(1)
+        o_dr = o_dr * x_mask_original
         y_lengths = o_dr.sum(1)
         # pitch predictor pass
         o_pitch = None
