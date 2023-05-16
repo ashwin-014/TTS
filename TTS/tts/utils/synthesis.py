@@ -43,22 +43,91 @@ def run_model_torch(
         Dict: model outputs.
     """
     input_lengths = torch.tensor(inputs.shape[1:2]).to(inputs.device)
+
+    # ONNX
+    with torch.no_grad():
+        model.forward = model.inference
+        print("speaker_id: ", {"speaker_ids": speaker_id.cpu().numpy(), "d_vectors": d_vector})
+        torch.onnx.export(
+            model=model,
+            args=(
+                inputs,
+                # {"speaker_ids": speaker_id, "d_vectors": d_vector}
+                speaker_id
+                # d_vector,
+                # {"is_final": True}
+            ),
+            f="fastpitch.onnx",
+            export_params=True,
+            opset_version=13,
+            do_constant_folding=True,
+            input_names=['x', 'speaker_id'],
+            output_names=['model_outputs', 'alignments', 'pitch', 'durations_log'],
+            # output_names=['outputs'],
+            dynamic_axes={
+                'x': {0: 'batch_size', 1: 'T'},
+                'model_outputs': {0: 'batch_size', 1: 'O_T'},
+                'alignments': {0: 'batch_size', 1: 'O_T', 2: 'T_'},
+                'pitch': {0: 'batch_size'},
+                'durations_log': {0: 'batch_size', 1: 'T'}
+            },
+            verbose=True,
+        )
+        import onnx
+        import onnxruntime as ort
+        onnx_model = onnx.load("fastpitch.onnx")
+        onnx.checker.check_model(onnx_model)
+        print("inputs: ", onnx_model.graph.input, onnx_model.graph.output)
+        ort_sess = ort.InferenceSession('fastpitch.onnx',providers=["CUDAExecutionProvider"])
+        outputs_ = ort_sess.run(
+            ['model_outputs', 'alignments', 'pitch', 'durations_log'],
+            # None,
+            {
+                'x': inputs.cpu().numpy(),
+                "speaker_id": speaker_id.cpu().numpy(),
+                # "d_vectors": d_vector,
+                # 'aux_input': {"speaker_ids": speaker_id}  # "d_vectors": d_vector, "x_lengths": input_lengths, 
+            }
+        )
+        print("outputs: ", type(outputs_), len(outputs_))
+        model_outputs_ = torch.Tensor(outputs_[0])
+        print(model_outputs_.size())
+        attn = torch.Tensor(outputs_[1])
+        output_dict = {
+            'model_outputs': model_outputs_,
+            'alignments': attn,
+            'pitch': outputs_[2],
+            'durations_log': outputs_[3]
+        }
+
     if hasattr(model, "module"):
         _func = model.module.inference
     else:
         _func = model.inference
-    outputs = _func(
-        inputs,
-        aux_input={
-            "x_lengths": input_lengths,
-            "speaker_ids": speaker_id,
-            "d_vectors": d_vector,
-            "style_mel": style_mel,
-            "style_text": style_text,
-            "language_ids": language_id,
-        },
-    )
-    return outputs
+    # outputs = _func(
+    #     inputs,
+    #     aux_input={
+    #         "x_lengths": input_lengths,
+    #         "speaker_ids": speaker_id,
+    #         "d_vectors": d_vector,
+    #         "style_mel": style_mel,
+    #         "style_text": style_text,
+    #         "language_ids": language_id,
+    #     },
+    # )
+    # outputs = _func(
+    #     inputs,
+    #     speaker_id,
+    #     d_vector
+    # )
+
+    # print("---> shape check ")
+    # print(model_outputs_, model_outputs_.shape)
+    # print(outputs[0], outputs[0].size())
+    # print(attn, attn.shape)
+    # print(outputs[1], outputs[1].size())
+    # return outputs
+    return output_dict
 
 
 def trim_silence(wav, ap):
@@ -183,7 +252,9 @@ def synthesis(
 
     # pass tensors to backend
     if speaker_id is not None:
+        print("speaker_id: ", speaker_id)
         speaker_id = id_to_torch(speaker_id, cuda=use_cuda)
+        print("speaker_id: ", speaker_id)
 
     if d_vector is not None:
         d_vector = embedding_to_torch(d_vector, cuda=use_cuda)

@@ -185,6 +185,12 @@ class Synthesizer(object):
         if use_cuda:
             self.vocoder_model.cuda()
 
+        import onnx
+        import onnxruntime as ort
+        onnx_model = onnx.load("vocoder.onnx")
+        onnx.checker.check_model(onnx_model)
+        self.ort_sess = ort.InferenceSession('vocoder.onnx',providers=["CUDAExecutionProvider"])
+
     def split_into_sentences(self, text) -> List[str]:
         """Split give text into sentences.
 
@@ -340,7 +346,38 @@ class Synthesizer(object):
                 # torch.jit.save(traced_vocoder, "traced_vocoder.pt")
                 # vocoder = torch.jit.load("traced_vocoder.pt")
                 # waveform = vocoder.inference(vocoder_inputs.to(device_type))
-                waveform = self.vocoder_model.inference(vocoder_inputs.to(device_type))
+
+                # with torch.no_grad():
+                    # script_model = torch.jit.script(self.vocoder_model)
+
+                    # ONNX
+                    # torch.onnx.export(
+                    #     model=self.vocoder_model,
+                    #     args=(vocoder_inputs, {'is_final': True}),
+                    #     f="vocoder.onnx",
+                    #     export_params=True,
+                    #     opset_version=13,
+                    #     do_constant_folding=True,
+                    #     input_names=['c'],
+                    #     output_names=['o'],
+                    #     dynamic_axes={'c': {0: 'batch_size', 2: 'T'},
+                    #                 'o': {0: 'batch_size', 2: 'T'}},
+                    #     verbose=True,
+                    # )
+                    # import onnx
+                    # import onnxruntime as ort
+                    # onnx_model = onnx.load("vocoder.onnx")
+                    # onnx.checker.check_model(onnx_model)
+                    # ort_sess = ort.InferenceSession('vocoder.onnx',providers=["CUDAExecutionProvider"])
+                    # waveform = ort_sess.run(None, {'c': vocoder_inputs.cpu().numpy()})
+                    # waveform = torch.Tensor(waveform).squeeze()
+                    # print(waveform, type(waveform), waveform.size())
+
+                # waveform = self.vocoder_model.inference(vocoder_inputs.to(device_type))
+                # waveform = onnx_model.inference(vocoder_inputs.to(device_type))
+                waveform = self.ort_sess.run(None, {'c': vocoder_inputs.cpu().numpy()})
+                waveform = torch.Tensor(waveform).squeeze(0)
+                # print(waveform, type(waveform), waveform.size())
 
                 # pad of 5 mel frames before and after
                 # hops * mel frames = length of audio
@@ -353,12 +390,14 @@ class Synthesizer(object):
                 waveform = waveform.cpu()
             if not use_gl:
                 waveform = waveform.numpy()
+
             for i, wave in enumerate(waveform):
                 # trim silence
                 if "do_trim_silence" in self.tts_config.audio and self.tts_config.audio["do_trim_silence"]:
                     wave = trim_silence(wave, self.tts_model.ap)
 
                 wave = wave.squeeze()[:attn[i]]
+                wave = wave.squeeze()
                 wavs += list(wave)
                 wavs += [0] * 10000
         else:

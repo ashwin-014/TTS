@@ -665,7 +665,8 @@ class ForwardTTS(BaseTTS):
         return outputs
 
     @torch.no_grad()
-    def inference(self, x, aux_input={"d_vectors": None, "speaker_ids": None}):  # pylint: disable=unused-argument
+    # def inference(self, x, aux_input={"d_vectors": None, "speaker_ids": None}):  # pylint: disable=unused-argument
+    def inference(self, x, speaker_id=None, d_vectors=None):  # pylint: disable=unused-argument
         """Model's inference pass.
 
         Args:
@@ -677,14 +678,15 @@ class ForwardTTS(BaseTTS):
             - x_lengths: [B]
             - g: [B, C]
         """
+        aux_input = {"d_vectors": d_vectors, "speaker_ids": speaker_id}
         g = self._set_speaker_input(aux_input)
 
         # ----- Batching support -----
         x_lengths = torch.tensor(x.shape[1]).repeat(x.shape[0]).to(x.device)
-        x_mask = torch.unsqueeze(sequence_mask(x_lengths, x.shape[1]), 1).float()
+        # x_mask = torch.unsqueeze(sequence_mask(x_lengths, x.shape[1]), 1).float()
 
         x_mask_original = sequence_mask(x_lengths, x.shape[1]).to(x.dtype)
-        x_mask_original = torch.where(x > 0, x_mask_original, False)
+        x_mask_original = torch.where(x > 0, x_mask_original, 0)
         x_mask = torch.unsqueeze(x_mask_original, 1).float()
         # ----------
 
@@ -714,7 +716,9 @@ class ForwardTTS(BaseTTS):
             "energy": o_energy,
             "durations_log": o_dr_log,
         }
-        return outputs
+        # return outputs
+        print("here: ")
+        return (o_de, attn, o_pitch, o_dr_log)
 
     def train_step(self, batch: dict, criterion: nn.Module):
         text_input = batch["text_input"]
