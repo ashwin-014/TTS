@@ -346,7 +346,8 @@ class ForwardTTS(BaseTTS):
                             [1, 0, 0, 0, 0, 0, 0]]
         """
         attn = self.generate_attn(dr, x_mask, y_mask)
-        o_en_ex = torch.matmul(attn.squeeze(1).transpose(1, 2).to(en.dtype), en.transpose(1, 2)).transpose(1, 2)
+        attn = attn.squeeze(1)
+        o_en_ex = torch.matmul(attn.transpose(1, 2).to(en.dtype), en.transpose(1, 2)).transpose(1, 2)
         return o_en_ex, attn
 
     def format_durations(self, o_dr_log, x_mask):
