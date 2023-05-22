@@ -185,11 +185,11 @@ class Synthesizer(object):
         if use_cuda:
             self.vocoder_model.cuda()
 
-        import onnx
-        import onnxruntime as ort
-        onnx_model = onnx.load("vocoder.onnx")
-        onnx.checker.check_model(onnx_model)
-        self.ort_sess = ort.InferenceSession('vocoder.onnx',providers=["CUDAExecutionProvider"])
+        # import onnx
+        # import onnxruntime as ort
+        # onnx_model = onnx.load("./nosqueeze/vocoder.onnx")
+        # onnx.checker.check_model(onnx_model)
+        # self.ort_sess = ort.InferenceSession('./nosqueeze/vocoder.onnx',providers=["CUDAExecutionProvider"])
 
     def split_into_sentences(self, text) -> List[str]:
         """Split give text into sentences.
@@ -350,33 +350,33 @@ class Synthesizer(object):
                 # with torch.no_grad():
                     # script_model = torch.jit.script(self.vocoder_model)
 
-                    # ONNX
-                    # torch.onnx.export(
-                    #     model=self.vocoder_model,
-                    #     args=(vocoder_inputs, {'is_final': True}),
-                    #     f="vocoder.onnx",
-                    #     export_params=True,
-                    #     opset_version=13,
-                    #     do_constant_folding=True,
-                    #     input_names=['c'],
-                    #     output_names=['o'],
-                    #     dynamic_axes={'c': {0: 'batch_size', 2: 'T'},
-                    #                 'o': {0: 'batch_size', 2: 'T'}},
-                    #     verbose=True,
-                    # )
-                    # import onnx
-                    # import onnxruntime as ort
-                    # onnx_model = onnx.load("vocoder.onnx")
-                    # onnx.checker.check_model(onnx_model)
-                    # ort_sess = ort.InferenceSession('vocoder.onnx',providers=["CUDAExecutionProvider"])
-                    # waveform = ort_sess.run(None, {'c': vocoder_inputs.cpu().numpy()})
-                    # waveform = torch.Tensor(waveform).squeeze()
-                    # print(waveform, type(waveform), waveform.size())
+                # ONNX
+                torch.onnx.export(
+                    model=self.vocoder_model,
+                    args=(vocoder_inputs, {'is_final': True}),
+                    f="vocoder.onnx",
+                    export_params=True,
+                    opset_version=16,
+                    do_constant_folding=True,
+                    input_names=['c'],
+                    output_names=['o'],
+                    dynamic_axes={'c': {0: 'batch_size', 2: 'T'},
+                                'o': {0: 'batch_size', 2: 'T'}},
+                    verbose=True,
+                )
+                # import onnx
+                # import onnxruntime as ort
+                # onnx_model = onnx.load("./nosqueeze/vocoder.onnx")
+                # onnx.checker.check_model(onnx_model)
+                # ort_sess = ort.InferenceSession('./nosqueeze/vocoder.onnx',providers=["CUDAExecutionProvider"])
+                # waveform = ort_sess.run(None, {'c': vocoder_inputs.cpu().numpy()})
+                # waveform = torch.Tensor(waveform).squeeze()
+                # print(waveform, type(waveform), waveform.size())
 
-                # waveform = self.vocoder_model.inference(vocoder_inputs.to(device_type))
+                waveform = self.vocoder_model.inference(vocoder_inputs.to(device_type))
                 # waveform = onnx_model.inference(vocoder_inputs.to(device_type))
-                waveform = self.ort_sess.run(None, {'c': vocoder_inputs.cpu().numpy()})
-                waveform = torch.Tensor(waveform).squeeze(0)
+                # waveform = self.ort_sess.run(None, {'c': vocoder_inputs.cpu().numpy()})
+                # waveform = torch.Tensor(waveform).squeeze(0)
                 # print(waveform, type(waveform), waveform.size())
 
                 # pad of 5 mel frames before and after

@@ -346,7 +346,10 @@ class ForwardTTS(BaseTTS):
                             [1, 0, 0, 0, 0, 0, 0]]
         """
         attn = self.generate_attn(dr, x_mask, y_mask)
-        o_en_ex = torch.matmul(attn.squeeze(1).transpose(1, 2).to(en.dtype), en.transpose(1, 2)).transpose(1, 2)
+        # print("\n\n\n", attn.shape, "\n\n\n")
+        # print("\n\n\n", attn.squeeze(1).shape, "\n\n\n")
+        # o_en_ex = torch.matmul(attn.squeeze(1).transpose(1, 2).to(en.dtype), en.transpose(1, 2)).transpose(1, 2)
+        o_en_ex = torch.matmul(attn.transpose(1, 2).to(en.dtype), en.transpose(1, 2)).transpose(1, 2)
         return o_en_ex, attn
 
     def format_durations(self, o_dr_log, x_mask):
@@ -444,6 +447,7 @@ class ForwardTTS(BaseTTS):
         # decoder pass
         o_de = self.decoder(o_en_ex, y_mask, g=g)
         return o_de.transpose(1, 2), attn.transpose(1, 2)
+        # return o_de, attn.transpose(1, 2)
 
     def _forward_pitch_predictor(
         self,

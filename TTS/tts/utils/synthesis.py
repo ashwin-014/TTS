@@ -59,51 +59,53 @@ def run_model_torch(
             ),
             f="fastpitch.onnx",
             export_params=True,
-            opset_version=13,
+            opset_version=16,
             do_constant_folding=True,
             input_names=['x', 'speaker_id'],
             output_names=['model_outputs', 'alignments', 'pitch', 'durations_log'],
             # output_names=['outputs'],
             dynamic_axes={
                 'x': {0: 'batch_size', 1: 'T'},
-                'model_outputs': {0: 'batch_size', 1: 'O_T'},
-                'alignments': {0: 'batch_size', 1: 'O_T', 2: 'T_'},
-                'pitch': {0: 'batch_size'},
-                'durations_log': {0: 'batch_size', 1: 'T'}
+                # 'model_outputs': {0: 'batch_size', 1: 'O_T'},
+                # 'alignments': {0: 'batch_size', 1: 'O_T', 2: 'T_'},
+                # 'pitch': {0: 'batch_size'},
+                # 'durations_log': {0: 'batch_size', 1: 'T'}
             },
-            verbose=True,
+            # verbose=True,
         )
-        import onnx
-        import onnxruntime as ort
-        onnx_model = onnx.load("fastpitch.onnx")
-        onnx.checker.check_model(onnx_model)
-        print("inputs: ", onnx_model.graph.input, onnx_model.graph.output)
-        ort_sess = ort.InferenceSession('fastpitch.onnx',providers=["CUDAExecutionProvider"])
-        outputs_ = ort_sess.run(
-            ['model_outputs', 'alignments', 'pitch', 'durations_log'],
-            # None,
-            {
-                'x': inputs.cpu().numpy(),
-                "speaker_id": speaker_id.cpu().numpy(),
-                # "d_vectors": d_vector,
-                # 'aux_input': {"speaker_ids": speaker_id}  # "d_vectors": d_vector, "x_lengths": input_lengths, 
-            }
-        )
-        print("outputs: ", type(outputs_), len(outputs_))
-        model_outputs_ = torch.Tensor(outputs_[0])
-        print(model_outputs_.size())
-        attn = torch.Tensor(outputs_[1])
-        output_dict = {
-            'model_outputs': model_outputs_,
-            'alignments': attn,
-            'pitch': outputs_[2],
-            'durations_log': outputs_[3]
-        }
+        # import onnx
+        # import onnxruntime as ort
+        # onnx_model = onnx.load("./nosqueeze/fastpitch.onnx")
+        # onnx.checker.check_model(onnx_model)
+        # print("inputs: ", onnx_model.graph.input, onnx_model.graph.output)
+        # ort_sess = ort.InferenceSession('./nosqueeze/fastpitch.onnx',providers=["CUDAExecutionProvider"])
+        # outputs_ = ort_sess.run(
+        #     ['model_outputs', 'alignments', 'pitch', 'durations_log'],
+        #     # None,
+        #     {
+        #         'x': inputs.cpu().numpy(),
+        #         "speaker_id": speaker_id.cpu().numpy(),
+        #         # "d_vectors": d_vector,
+        #         # 'aux_input': {"speaker_ids": speaker_id}  # "d_vectors": d_vector, "x_lengths": input_lengths, 
+        #     }
+        # )
+        # print("outputs: ", type(outputs_), len(outputs_))
+        # model_outputs_ = torch.Tensor(outputs_[0])
+        # print(model_outputs_.size())
+        # attn = torch.Tensor(outputs_[1])
+        # output_dict = {
+        #     'model_outputs': model_outputs_,
+        #     'alignments': attn,
+        #     'pitch': outputs_[2],
+        #     'durations_log': outputs_[3]
+        # }
 
     if hasattr(model, "module"):
         _func = model.module.inference
     else:
         _func = model.inference
+
+
     # outputs = _func(
     #     inputs,
     #     aux_input={
@@ -115,12 +117,22 @@ def run_model_torch(
     #         "language_ids": language_id,
     #     },
     # )
-    # outputs = _func(
-    #     inputs,
-    #     speaker_id,
-    #     d_vector
-    # )
-
+    outputs_ = _func(
+        inputs,
+        speaker_id,
+        d_vector
+    )
+    # print(outputs_)
+    print("outputs: ", type(outputs_), len(outputs_))
+    model_outputs_ = torch.Tensor(outputs_[0])
+    print(model_outputs_.size())
+    attn = torch.Tensor(outputs_[1])
+    output_dict = {
+        'model_outputs': outputs_[0],
+        'alignments': outputs_[1],
+        'pitch': outputs_[2],
+        'durations_log': outputs_[3]
+    }
     # print("---> shape check ")
     # print(model_outputs_, model_outputs_.shape)
     # print(outputs[0], outputs[0].size())
