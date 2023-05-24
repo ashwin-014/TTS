@@ -440,14 +440,14 @@ class ForwardTTS(BaseTTS):
         """
         y_mask = torch.unsqueeze(sequence_mask(y_lengths, None), 1).to(o_en.dtype)
         # expand o_en with durations
-        o_en_ex, attn = self.expand_encoder_outputs(o_en, dr, x_mask, y_mask)
+        o_en_ex, attn = self.expand_encoder_outputs(o_en, dr, torch.unsqueeze(x_mask, 1), y_mask)
         # positional encoding
         if hasattr(self, "pos_encoder"):
             o_en_ex = self.pos_encoder(o_en_ex, y_mask)
         # decoder pass
         o_de = self.decoder(o_en_ex, y_mask, g=g)
         return o_de.transpose(1, 2), attn.transpose(1, 2)
-        # return o_de, attn.transpose(1, 2)
+        # return o_de, attn.transpose(1, 2)   
 
     def _forward_pitch_predictor(
         self,
@@ -609,8 +609,8 @@ class ForwardTTS(BaseTTS):
         """
         g = self._set_speaker_input(aux_input)
         # compute sequence masks
-        y_mask = torch.unsqueeze(sequence_mask(y_lengths, None), 1).float()
         x_mask = torch.unsqueeze(sequence_mask(x_lengths, x.shape[1]), 1).float()
+        y_mask = torch.unsqueeze(sequence_mask(y_lengths, None), 1).float()
         # encoder pass
         o_en, x_mask, g, x_emb = self._forward_encoder(x, x_mask, g)
         # duration predictor pass
@@ -691,14 +691,15 @@ class ForwardTTS(BaseTTS):
 
         x_mask_original = sequence_mask(x_lengths, x.shape[1]).to(x.dtype)
         x_mask_original = torch.where(x > 0, x_mask_original, 0)
-        x_mask = torch.unsqueeze(x_mask_original, 1).float()
+        # x_mask = torch.unsqueeze(x_mask_original, 1).float()
+        x_mask = x_mask_original.float()
         # ----------
 
         # encoder pass
         o_en, x_mask, g, _ = self._forward_encoder(x, x_mask, g)
         # duration predictor pass
         o_dr_log = self.duration_predictor(o_en, x_mask)
-        o_dr = self.format_durations(o_dr_log, x_mask).squeeze(1)
+        o_dr = self.format_durations(o_dr_log, torch.unsqueeze(x_mask, 1)).squeeze(1)
         o_dr = o_dr * x_mask_original
         y_lengths = o_dr.sum(1)
         # pitch predictor pass

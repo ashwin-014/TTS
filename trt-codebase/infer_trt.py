@@ -5,6 +5,8 @@ import numpy as np
 import scipy
 import tensorrt as trt
 from cuda import cuda, cudart, nvrtc
+import sys
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from TTS.api import TTS
 # import torch
 from itertools import zip_longest
@@ -199,6 +201,13 @@ def trt_exec(
     #     # fastpitch["data_stream"]
     # )
 
+    # err, = cuda.cuMemcpyDtoH(
+    #     fastpitch["io"]["outputs"]["model_outputs"].ctypes.data,
+    #     fastpitch["io"]["device_mem_address"]["model_outputs"],
+    #     trt.volume((bs_to_use, 817, 80)) * np.dtype(trt.nptype(fastpitch["engine"].get_binding_dtype("model_outputs"))).itemsize,
+    #     # fastpitch["data_stream"]
+    # )
+
     err, = cuda.cuMemcpyDtoH(
         fastpitch["io"]["outputs"]["alignments"].ctypes.data,
         fastpitch["io"]["device_mem_address"]["alignments"],
@@ -211,7 +220,7 @@ def trt_exec(
 
     # print(vocoder_inputs[:bs_to_use+1])
 
-    # hifigan["io"]["inputs"]["c"][:bs_to_use] = vocoder_inputs[:bs_to_use]
+    # hifigan["io"]["inputs"]["c"][:bs_to_use] = np.ascontiguousarray(vocoder_inputs)[:bs_to_use]
     
     # err, = cuda.cuMemcpyHtoD(
     #     hifigan["io"]["device_mem_address"]["c"],
@@ -257,12 +266,13 @@ def trt_batch():
     # Model init
     # --------------------------------------
     fastpitch = load_model("models/v1/hi/nosqueeze_transpose/fastpitch.engine")
-    # fastpitch = load_model("nosqueeze/fastpitch-simplified.engine")
+    # fastpitch = load_model("models/v1/hi/nosqueeze/fastpitch_unsqueeze.engine")
+    # fastpitch = load_model("models/v1/hi/nosqueeze/fastpitch.engine")
     err, fastpitch["data_stream"] = cuda.cuStreamCreate(0)
     err, fastpitch["model_stream"] = cuda.cuStreamCreate(0)
     print("Initialised fastpitch...")
 
-    hifigan = load_model("nosqueeze/vocoder.engine")
+    hifigan = load_model("models/v1/hi/nosqueeze/vocoder.engine")
     err, hifigan["data_stream"] = cuda.cuStreamCreate(0)
     err, hifigan["model_stream"] = cuda.cuStreamCreate(0)
     
@@ -347,8 +357,8 @@ def trt_batch():
     print(f"done in {time.time() - start}")
 
     wav = np.array(wav)
-    save_wav(wav=wav, path="nosqueeze_transpose/trt_output.wav", sample_rate=22050)
-
+    # save_wav(wav=wav, path="models/v1/hi/nosqueeze/trt_output.wav", sample_rate=22050)
+    save_wav(wav=wav, path="models/v1/hi/nosqueeze_transpose/trt_output.wav", sample_rate=22050)
 
 if __name__ == "__main__":
     # batch()

@@ -1,0 +1,24 @@
+python TTS/code/trt-codebase/decompose_fastpitch_torch.py \
+    --export_embedding \
+    --export_encoder \
+    --export_duration_predictor \
+    --export_pitch_predictor \
+    --export_pitch_embedding \
+    --export_positional_encoder \
+    --export_decoder
+
+python TTS/code/trt-codebase/decompose_fastpitch_onnx.py \
+    --onnx_model_dir TTS/code/trt-codebase/decomposed_model/onnx
+
+python TTS/code/trt-codebase/decompose_fastpitch_onnx.py \
+    --onnx_model_dir TTS/code/trt-codebase/decomposed_model/onnx \
+    --build_embedding \
+    --build_encoder \
+    --build_duration_predictor \
+    --build_pitch_predictor \
+    --build_pitch_embedding \
+    --build_positional_encoder \
+    --build_decoder
+
+
+polygraphy run /tmp/emb.onnx --onnxrt --input-shapes x:[2,24] --validate

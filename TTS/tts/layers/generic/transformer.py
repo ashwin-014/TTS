@@ -58,13 +58,16 @@ class FFTransformerBlock(nn.Module):
             - mask:  :math:`[B, 1, T] or [B, T]`
         """
         if mask is not None and mask.ndim == 3:
+            print("\n\n\n\n", "Mask layer input shape before squeeze: ", mask.shape, "\n\n\n\n")
             mask = mask.squeeze(1)
+            print("\n\n\n\n", "Mask layer input shape after squeeze: ", mask.shape, "\n\n\n\n")
             # mask is negated, torch uses 1s and 0s reversely.
             mask = ~mask.bool()
         alignments = []
         for layer in self.fft_layers:
             x, align = layer(x, src_key_padding_mask=mask)
             alignments.append(align.unsqueeze(1))
+            # alignments.append(align)
         alignments = torch.cat(alignments, 1)
         return x
 

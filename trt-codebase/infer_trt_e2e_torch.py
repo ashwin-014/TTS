@@ -2,6 +2,7 @@ import os
 import time
 import pysbd
 import numpy as np
+import torch
 import scipy
 import tensorrt as trt
 from cuda import cuda, cudart, nvrtc
@@ -50,8 +51,11 @@ def allocate_binding_buffer(types_dict, shapes_dict):
     Allocate binding buffers for trt based on provided types and shapes dict
     '''
     return {
-        # k: cp.ascontiguousarray(cp.zeros(shape).astype(types_dict[k]))
-        k: np.ascontiguousarray(np.zeros(shape).astype(types_dict[k]))
+        k: torch.empty(
+            size=shape,
+            dtype=types_dict[k],
+            device='cuda',
+        )
         for k, shape in shapes_dict.items()
     }
 
@@ -70,13 +74,12 @@ def _allocate_memory(model):
         dtype = trt.nptype(model["engine"].get_binding_dtype(binding))
 
         if model["engine"].binding_is_input(binding):
-            err = cuda.cuMemHostRegister(inputs[binding].ctypes.data, inputs[binding].nbytes, cuda.CU_MEMHOSTREGISTER_DEVICEMAP)
-            err, device_memory_addresses[binding] = cuda.cuMemAlloc(inputs[binding].nbytes)
-            bindings[binding_idx] = int(device_memory_addresses[binding])
+            bindings[binding_idx] = int(inputs[binding].data_ptr())
+            device_memory_addresses[binding] = int(inputs[binding].data_ptr())
         else:
-            err, = cuda.cuMemHostRegister(outputs[binding].ctypes.data, outputs[binding].nbytes, cuda.CU_MEMHOSTREGISTER_DEVICEMAP)
-            err, device_memory_addresses[binding] = cuda.cuMemAlloc(outputs[binding].nbytes)
-            bindings[binding_idx] = int(device_memory_addresses[binding])
+            bindings[binding_idx] = int(outputs[binding].data_ptr())
+            device_memory_addresses[binding] = int(outputs[binding].data_ptr())
+            
     return {
         "bindings": bindings,
         "inputs": inputs,
@@ -95,22 +98,9 @@ def batch():
     )
 
     start = time.time()
-    # text="मेरा. नाम भारत हैं. नमस्ते आपका नाम क्या है. नमस्ते आपका नाम क्या है. \
-    #                     नमस्ते आपका नाम क्या है. नमस्ते आपका नाम क्या है. नमस्ते आपका नाम क्या है. नमस्ते आपका नाम क्या है.\
-    #                      नमस्ते आपका नाम क्या है. नमस्ते आपका नाम क्या है. नमस्ते आपका नाम क्या है. नमस्ते आपका नाम क्या है. \
-    #                      नमस्ते आपका नाम क्या है. नमस्ते आपका नाम क्या है. नमस्ते आपका नाम क्या है. \
-    #                      नमस्ते आपका नाम क्या है. नमस्ते आपका नाम क्या है. नमस्ते आपका नाम क्या है."
 
-    # text="मेरा. नमस्ते. \
-    #     नमस्ते आपका नाम क्या है. नमस्ते आपका नाम क्या है. \
-    #     नमस्ते आपका नाम क्या है. नमस्ते आपका नाम क्या है."
-    # text="नमस्ते आपका नाम क्या है. नमस्ते आपका नाम क्या है. \
-    #     नमस्ते आपका नाम क्या है. नमस्ते आपका नाम क्या है. \
-    #     नमस्ते आपका नाम क्या है. नमस्ते आपका नाम क्या है."
-    # text="नमस्ते आपका नाम क्या है. नमस्ते आपका नाम क्या है."
     text="नमस्ते आपका नाम क्या है. मुझे ये करना हे भारत हैं नाम."
-    # text="नमस्ते आपका नाम क्या है."  
-    # text = "मेरा. नाम भारत हैं. नमस्ते आपका नाम क्या है. नमस्ते आपका नाम क्या है"
+
     seg = pysbd.Segmenter(language="en", clean=True)
     sens = seg.segment(text)
     print(" > Text splitted to sentences.")
@@ -244,9 +234,13 @@ def trt_batch():
     err, hififastpitch["model_stream"] = cuda.cuStreamCreate(1)
     print("Initialised hififastpitch...")
 
+    max_bs = 6
+    max_encoder_sequence_length = 24
+    max_decoder_sequence_length = 817
+
     # setting shape and types for FastPitch
     hififastpitch["input_shapes"] = {
-        "fastpitch/x": (6, 24),
+        "fastpitch/x": (max_bs, max_encoder_sequence_length),
         "fastpitch/speaker_id": (1),
     }
     hififastpitch["input_types"] = {
@@ -254,11 +248,11 @@ def trt_batch():
         "fastpitch/speaker_id": np.int32,
     }
     hififastpitch["output_shapes"] = {
-        "fastpitch/decoder_output": (6, 80, 817),  
-        "fastpitch/alignments": (6, 817, 24),
-        "fastpitch/pitch": (6, 1, 24),
-        "fastpitch/durations_log": (6, 1, 24),
-        "hifigan/o": (6, 1, 209152),
+        "fastpitch/decoder_output": (max_bs, 80, max_decoder_sequence_length),  
+        "fastpitch/alignments": (max_bs, max_decoder_sequence_length, max_encoder_sequence_length),
+        "fastpitch/pitch": (max_bs, 1, max_encoder_sequence_length),
+        "fastpitch/durations_log": (max_bs, 1, max_encoder_sequence_length),
+        "hifigan/o": (max_bs, 1, 209152),
     }
     hififastpitch["output_types"] = {
         "fastpitch/decoder_output": np.float32,
@@ -278,9 +272,9 @@ def trt_batch():
     # text="नमस्ते आपका नाम क्या है. नमस्ते आपका नाम क्या है. \
     #     नमस्ते आपका नाम क्या है. नमस्ते आपका नाम क्या है. \
     #     नमस्ते आपका नाम क्या है. नमस्ते आपका नाम क्या है."
-    # text="नमस्ते आपका नाम क्या है. नमस्ते आपका नाम क्या है."
+    text="नमस्ते आपका नाम क्या है. नमस्ते आपका नाम क्या है."
     # text="नमस्ते आपका नाम क्या है. नाम भारत हैं."
-    text="नमस्ते आपका नाम क्या है."
+    # text="नमस्ते आपका नाम क्या है."
     # text = "मेरा. नाम भारत हैं. नमस्ते आपका नाम क्या है. नमस्ते आपका नाम क्या है"
 
     # text = "मेरा. नाम भारत हैं. नमस्ते आपका नाम क्या है. नमस्ते आपका नाम क्या है"

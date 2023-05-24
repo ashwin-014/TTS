@@ -52,6 +52,10 @@ def sequence_mask(sequence_length, max_len=None):
     if max_len is None:
         max_len = sequence_length.data.max()
     seq_range = torch.arange(max_len, dtype=sequence_length.dtype, device=sequence_length.device)
+
+    print("Here-1: ", seq_range.shape)
+    print("Here-2: ", sequence_length.shape)
+
     mask = seq_range.repeat(sequence_length.shape[0], 1) < sequence_length.unsqueeze(1)
     return mask
 

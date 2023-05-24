@@ -1,5 +1,5 @@
 from torch import nn
-
+import torch
 from TTS.tts.layers.generic.res_conv_bn import ResidualConv1dBNBlock
 from TTS.tts.layers.generic.transformer import FFTransformerBlock
 from TTS.tts.layers.glow_tts.transformer import RelativePositionTransformer
@@ -159,4 +159,9 @@ class Encoder(nn.Module):
             g: [B, C, 1]
         """
         o = self.encoder(x, x_mask)
-        return o * x_mask
+
+        print("Inside Encoder: ", x_mask.shape)
+
+        # print("\n\n\n", o.shape, "\n\n\n")
+        return o * torch.unsqueeze(x_mask, 1)
+        # return o * x_mask

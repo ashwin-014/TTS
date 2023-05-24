@@ -57,7 +57,7 @@ def run_model_torch(
                 # d_vector,
                 # {"is_final": True}
             ),
-            f="fastpitch.onnx",
+            f="models/v1/hi/nosqueeze/fastpitch_unsqueeze.onnx",
             export_params=True,
             opset_version=16,
             do_constant_folding=True,
@@ -139,6 +139,7 @@ def run_model_torch(
     # print(attn, attn.shape)
     # print(outputs[1], outputs[1].size())
     # return outputs
+    print(outputs_[0].transpose(1, 2))
     return output_dict
 
 
