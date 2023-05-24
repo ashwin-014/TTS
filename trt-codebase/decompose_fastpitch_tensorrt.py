@@ -56,7 +56,7 @@ def allocate_binding_buffer(types_dict, shapes_dict):
     '''
     return {
         k: torch.empty(
-            size=shape,
+            size=(np.prod(shape),),
             dtype=types_dict[k],
             device='cuda',
         )
@@ -231,6 +231,7 @@ def decompose(
         x_mask_original = torch.where(x > 0, x_mask_original, 0)
         # x_mask = torch.unsqueeze(x_mask_original, 1).float()
         x_mask = x_mask_original.float()
+        
 
         # ----- ENCODER - START
 
@@ -239,143 +240,137 @@ def decompose(
 
         logger.info(f"Embedding Input Shape- {x.shape}")
 
-        models["embedding"]["io"]
-
-        models["embedding"]["io"]["inputs"]["x"][:bs_to_use, :x.shape[1]] = x[:bs_to_use, :]
-
-        # x_emb = emb(x)                                          # Emebdding forward pass
-
-        models["embedding"]["context"].set_binding_shape(models["embedding"]["engine"].get_binding_index("x"), 
-                                                         models["embedding"]["io"]["inputs"]["x"][:bs_to_use, :x.shape[1]].shape)
-
+        models["embedding"]["io"]["inputs"]["x"][:np.prod([bs_to_use, x.shape[1]])] = x.flatten()[:]
+        models["embedding"]["context"].set_binding_shape(models["embedding"]["engine"].get_binding_index("x"), x.shape)
         assert models["embedding"]["context"].all_binding_shapes_specified
-
         models["embedding"]["context"].execute_v2(bindings=models["embedding"]["io"]["bindings"])
+        # print(torch.reshape(models["embedding"]["io"]["outputs"]["x_emb"][:np.prod([bs_to_use, x.shape[1], 512])],
+        #                     [bs_to_use, x.shape[1], 512]))
+        x_emb = torch.reshape(models["embedding"]["io"]["outputs"]["x_emb"][:np.prod([bs_to_use, x.shape[1], 512])],
+                              [bs_to_use, x.shape[1], 512])
+        x_emb = torch.transpose(x_emb, 1, -1)
 
-        print(models["embedding"]["io"]["outputs"]["x_emb"][:bs_to_use, :x.shape[1], :])
 
-        print(models["embedding"]["io"]["outputs"]["x_emb"][:bs_to_use, :x.shape[1], :].shape)
 
-    #     logger.info(f"Embedding Output Shape- x_emb:{x_emb.shape}")
-            
-    #     encoder_input_x = torch.transpose(x_emb, 1, -1)
-
-    #     logger.info(f"Encoder Input Shapes - encoder_input_x:{encoder_input_x.shape}, x_mask:{x_mask.shape}")
-
-    #     # o_en = encoder(encoder_input_x, x_mask)   # Ecoder Forward pass
-
-    #     o_en = models["encoder"].run(
-    #         ["o_en"],
-    #         {"encoder_input_x": encoder_input_x.cpu().numpy(), "x_mask": x_mask.cpu().numpy()})
-    #     o_en = torch.tensor(o_en[0])
-
-    #     logger.info(f"Encoder Output Shapes - o_en:{o_en.shape}")
-
-    #     if g is not None:
-    #         o_en = o_en + g
-
-    #     # outputs after encoder pass : o_en, x_mask, g, x_emb
+        models["encoder"]["io"]["inputs"]["encoder_input_x"][:np.prod([bs_to_use, x.shape[1], 512])] = x_emb.flatten()[:]
+        models["encoder"]["context"].set_binding_shape(models["encoder"]["engine"].get_binding_index("encoder_input_x"), x_emb.shape)
+        models["encoder"]["io"]["inputs"]["x_mask"][:np.prod([bs_to_use, x.shape[1]])] = x_mask.flatten()[:]
+        models["encoder"]["context"].set_binding_shape(models["encoder"]["engine"].get_binding_index("x_mask"), x_mask.shape)
+        assert models["encoder"]["context"].all_binding_shapes_specified
+        models["encoder"]["context"].execute_v2(bindings=models["encoder"]["io"]["bindings"])
+        # print(torch.reshape(models["encoder"]["io"]["outputs"]["o_en"][:np.prod([bs_to_use, 512, x.shape[1]])],
+        #                     [bs_to_use, 512, x.shape[1]]))
+        o_en = torch.reshape(models["encoder"]["io"]["outputs"]["o_en"][:np.prod([bs_to_use, 512, x.shape[1]])],
+                             [bs_to_use, 512, x.shape[1]])
+        if g is not None:
+            o_en = o_en + g
 
     #     # ----- ENCODER - END
 
+
+
     #     # ----- DURATION PREDICTION - START
 
-    #     logger.info(f"Duration Predictor Input Shapes- o_en:{o_en.shape}, x_mask:{x_mask.shape}")
+        models["duration_predictor"]["io"]["inputs"]["o_en"][:np.prod([bs_to_use, 512, x.shape[1]])] = o_en.flatten()[:]
+        models["duration_predictor"]["context"].set_binding_shape(models["duration_predictor"]["engine"].get_binding_index("o_en"), o_en.shape)
+        models["duration_predictor"]["io"]["inputs"]["x_mask"][:np.prod([bs_to_use, x.shape[1]])] = x_mask.flatten()[:]
+        models["duration_predictor"]["context"].set_binding_shape(models["duration_predictor"]["engine"].get_binding_index("x_mask"), x_mask.shape)
+        assert models["duration_predictor"]["context"].all_binding_shapes_specified
+        models["duration_predictor"]["context"].execute_v2(bindings=models["duration_predictor"]["io"]["bindings"])
+        # print(torch.reshape(models["duration_predictor"]["io"]["outputs"]["o_dr_log"][:np.prod([bs_to_use, 1, x.shape[1]])],
+        #                     [bs_to_use, 1, x.shape[1]]))
+        o_dr_log = torch.reshape(models["duration_predictor"]["io"]["outputs"]["o_dr_log"][:np.prod([bs_to_use, 1, x.shape[1]])],
+                                 [bs_to_use, 1, x.shape[1]])
 
-    #     # o_dr_log = duration_predictor(o_en, x_mask)           # Duration Predictor Forward pass
+        o_dr = format_durations(o_dr_log, torch.unsqueeze(x_mask, 1)).squeeze(1)    
+        o_dr = o_dr * x_mask_original
+        y_lengths = o_dr.sum(1)
 
-    #     o_dr_log = models["duration_predictor"].run(["o_dr_log"], 
-    #         {"o_en": o_en.cpu().numpy(), "x_mask": x_mask.cpu().numpy()})
-    #     o_dr_log = torch.tensor(o_dr_log[0])
+        # print(y_lengths)
+        # print(y_lengths.shape)
 
-    #     logger.info(f"Duration Predictor Output Shapes- o_dr_log:{o_dr_log.shape}")
+        # outputs after duration predictor pass: o_dr_log, o_dr, y_lengths
+        # ----- DURATION PREDICTION - END
 
-    #     o_dr = format_durations(o_dr_log, torch.unsqueeze(x_mask, 1)).squeeze(1)    
-    #     o_dr = o_dr * x_mask_original
-    #     y_lengths = o_dr.sum(1)
 
-    #     # outputs after duration predictor pass: o_dr_log, o_dr, y_lengths
 
-    #     # ----- DURATION PREDICTION - END
+        # ----- PITCH PREDICTOR - START
 
-    #     # ----- PITCH PREDICTOR - START
+        o_pitch = None  # useless statement. For code interpretability during comparison with coqui codebase
+        models["pitch_predictor"]["io"]["inputs"]["o_en"][:np.prod([bs_to_use, 512, x.shape[1]])] = o_en.flatten()[:]
+        models["pitch_predictor"]["context"].set_binding_shape(models["pitch_predictor"]["engine"].get_binding_index("o_en"), o_en.shape)
+        models["pitch_predictor"]["io"]["inputs"]["x_mask"][:np.prod([bs_to_use, x.shape[1]])] = x_mask.flatten()[:]
+        models["pitch_predictor"]["context"].set_binding_shape(models["pitch_predictor"]["engine"].get_binding_index("x_mask"), x_mask.shape)
+        assert models["pitch_predictor"]["context"].all_binding_shapes_specified
+        models["pitch_predictor"]["context"].execute_v2(bindings=models["pitch_predictor"]["io"]["bindings"])
+        # print(torch.reshape(models["pitch_predictor"]["io"]["outputs"]["o_pitch"][:np.prod([bs_to_use, 1, x.shape[1]])],
+        #                     [bs_to_use, 1, x.shape[1]]))
+        o_pitch = torch.reshape(models["pitch_predictor"]["io"]["outputs"]["o_pitch"][:np.prod([bs_to_use, 1, x.shape[1]])],
+                                [bs_to_use, 1, x.shape[1]])
 
-    #     o_pitch = None  # useless statement. For code interpretability during comparison with coqui codebase
 
-    #     logger.info(f"Pitch Predictor Input Shapes- o_en:{o_en.shape}, x_mask:{x_mask.shape}")
 
-    #     # o_pitch = pitch_predictor(o_en, x_mask)             # Pitch Predictor Forward pass
-
-    #     o_pitch = models["pitch_predictor"].run(
-    #         ["o_pitch"],
-    #         {"o_en": o_en.cpu().numpy(), "x_mask": x_mask.cpu().numpy()},
-    #     )
-    #     o_pitch = torch.tensor(o_pitch[0])
-
-    #     logger.info(f"Pitch Predictor Output Shapes- o_pitch:{o_pitch.shape}")
-
-    #     logger.info(f"Pitch Embedding Input Shapes- o_pitch:{o_pitch.shape}")
-
-    #     # o_pitch_emb = pitch_emb(o_pitch)                    # Pitch Embedding Forward pass
-
-    #     o_pitch_emb = models["pitch_embedding"].run(
-    #         ["o_pitch_emb"],
-    #         {"o_pitch": o_pitch.cpu().numpy()},
-    #     )
-    #     o_pitch_emb = torch.tensor(o_pitch_emb[0])
-
-    #     logger.info(f"Pitch Embedding Output Shapes- o_pitch_emb:{o_pitch_emb.shape}")
-
-    #     o_en = o_en + o_pitch_emb
+        models["pitch_embedding"]["io"]["inputs"]["o_pitch"][:np.prod([bs_to_use, 1, x.shape[1]])] = o_pitch.flatten()[:]
+        models["pitch_embedding"]["context"].set_binding_shape(models["pitch_embedding"]["engine"].get_binding_index("o_pitch"), o_pitch.shape)
+        assert models["pitch_embedding"]["context"].all_binding_shapes_specified
+        models["pitch_embedding"]["context"].execute_v2(bindings=models["pitch_embedding"]["io"]["bindings"])
+        # print(torch.reshape(models["pitch_embedding"]["io"]["outputs"]["o_pitch_emb"][:np.prod([bs_to_use, 512, x.shape[1]])],
+        #                     [bs_to_use, 512, x.shape[1]]))
+        o_pitch_emb = torch.reshape(models["pitch_embedding"]["io"]["outputs"]["o_pitch_emb"][:np.prod([bs_to_use, 512, x.shape[1]])],
+                                    [bs_to_use, 512, x.shape[1]])
+        o_en = o_en + o_pitch_emb
         
-    #     # outputs after pitch predictor pass: o_en, o_pitch, o_pitch_emb
+        # outputs after pitch predictor pass: o_en, o_pitch, o_pitch_emb
+        # ----- PITCH PREDICTOR - END
 
-    #     # ----- PITCH PREDICTOR - END
+        o_energy = None                     
 
-    #     o_energy = None                     
+        # ----- DECODER - START
 
-    #     # ----- DECODER - START
+        y_mask = torch.unsqueeze(sequence_mask(y_lengths, None), 1).to(o_en.dtype)
+        o_en_ex, attn = expand_encoder_outputs(o_en, o_dr, torch.unsqueeze(x_mask, 1), y_mask)
+        y_length_max = int(torch.max(y_lengths).cpu().numpy().tolist())
 
-    #     y_mask = torch.unsqueeze(sequence_mask(y_lengths, None), 1).to(o_en.dtype)
+        # print(y_mask)
 
-    #     o_en_ex, attn = expand_encoder_outputs(o_en, o_dr, torch.unsqueeze(x_mask, 1), y_mask)
+        # logger.info(f"Decoder Positional Encoder Input Shapes- o_en_ex:{o_en_ex.shape}, y_mask:{y_mask.shape}")
 
-    #     logger.info(f"Decoder Positional Encoder Input Shapes- o_en_ex:{o_en_ex.shape}, y_mask:{y_mask.shape}")
+        models["positional_encoder"]["io"]["inputs"]["o_en_ex_in"][:np.prod([bs_to_use, 512, y_length_max])] = o_en_ex.flatten()[:]
+        models["positional_encoder"]["context"].set_binding_shape(models["positional_encoder"]["engine"].get_binding_index("o_en_ex_in"), o_en_ex.shape)
+        models["positional_encoder"]["io"]["inputs"]["y_mask"][:np.prod([bs_to_use, 1, y_length_max])] = y_mask.flatten()[:]
+        models["positional_encoder"]["context"].set_binding_shape(models["positional_encoder"]["engine"].get_binding_index("y_mask"), y_mask.shape)
+        assert models["positional_encoder"]["context"].all_binding_shapes_specified
+        models["positional_encoder"]["context"].execute_v2(bindings=models["positional_encoder"]["io"]["bindings"])
+        # print(torch.reshape(models["positional_encoder"]["io"]["outputs"]["o_en_ex_out"][:np.prod([bs_to_use, 512, y_length_max])],
+        #                     [bs_to_use, 512, y_length_max]))
+        o_en_ex_out = torch.reshape(models["positional_encoder"]["io"]["outputs"]["o_en_ex_out"][:np.prod([bs_to_use, 512, y_length_max])],
+                                    [bs_to_use, 512, y_length_max])
 
-    #     # o_en_ex = pos_encoder(o_en_ex, y_mask)              # Positional Encoder Forward pass
 
-    #     o_en_ex = models["positional_encoder"].run(
-    #         ["o_en_ex_out"],
-    #         {"o_en_ex_in": o_en_ex.cpu().numpy(), "y_mask": y_mask.cpu().numpy()}
-    #     )
-    #     o_en_ex = torch.tensor(o_en_ex[0])
 
-    #     logger.info(f"Decoder Positional Encoder Output Shapes- o_en_ex:{o_en_ex.shape}")
+        models["decoder"]["io"]["inputs"]["o_en_ex"][:np.prod([bs_to_use, 512, y_length_max])] = o_en_ex_out.flatten()[:]
+        models["decoder"]["context"].set_binding_shape(models["decoder"]["engine"].get_binding_index("o_en_ex"), o_en_ex_out.shape)
+        models["decoder"]["io"]["inputs"]["y_mask"][:np.prod([bs_to_use, 1, y_length_max])] = y_mask.flatten()[:]
+        models["decoder"]["context"].set_binding_shape(models["decoder"]["engine"].get_binding_index("y_mask"), y_mask.shape)
+        assert models["decoder"]["context"].all_binding_shapes_specified
+        models["decoder"]["context"].execute_v2(bindings=models["decoder"]["io"]["bindings"])
+        # print(torch.reshape(models["decoder"]["io"]["outputs"]["o_de"][:np.prod([bs_to_use, 80, y_length_max])],
+        #                     [bs_to_use, 80, y_length_max]))
+        o_de = torch.reshape(models["decoder"]["io"]["outputs"]["o_de"][:np.prod([bs_to_use, 80, y_length_max])],
+                            [bs_to_use, 80, y_length_max])
 
-    #     logger.info(f"Decoder Input Shapes- o_en_ex:{o_en_ex.shape}, y_mask:{y_mask.shape}, g:{g.shape}")
-
-    #     # o_de = decoder(o_en_ex, y_mask, g=g)                # Decoder Forward pass
-
-    #     o_de = models["decoder"].run(
-    #         ["o_de"],
-    #         {"o_en_ex": o_en_ex.cpu().numpy(), "y_mask": y_mask.cpu().numpy()}
-    #     )
-    #     o_de = torch.tensor(o_de[0])
-
-    #     logger.info(f"Decoder Output Shapes- o_de:{o_de.shape}")
-
-    # # outputs after decoder pass: y_mask, o_en_ex, attn, o_de
+        # outputs after decoder pass: y_mask, o_en_ex, attn, o_de
     
-    # # ----- DECODER - END
+        # ----- DECODER - END
     
     
-    # outputs = {
-    #     "model_outputs": o_de,
-    #     "alignments": attn,
-    #     "pitch": o_pitch,
-    #     "energy": o_energy,
-    #     "durations_log": o_dr_log,
-    # }
+    outputs = {
+        "model_outputs": o_de,
+        "alignments": attn,
+        "pitch": o_pitch,
+        "energy": o_energy,
+        "durations_log": o_dr_log,
+    }
 
     # print("Fastpitch Decomposition completed successfully!")    
 
@@ -383,24 +378,24 @@ def decompose(
 
     # # print(o_de.shape)
 
-    # waveform = vocoder.inference(outputs["model_outputs"])
+    waveform = vocoder.inference(outputs["model_outputs"])
 
-    # attn = torch.sum(outputs["alignments"], dim=(-1, -2))
-    # attn = attn - 5
-    # attn = (attn * int(waveform.shape[2]/attn.max())).to(torch.int)
+    attn = torch.sum(outputs["alignments"], dim=(-1, -2))
+    attn = attn - 5
+    attn = (attn * int(waveform.shape[2]/attn.max())).to(torch.int)
 
-    # waveform = waveform.cpu().numpy()
+    waveform = waveform.cpu().numpy()
 
-    # for i, wave in enumerate(waveform):
-    #     wave = wave.squeeze()[:attn[i]]
-    #     wave = wave.squeeze()
-    #     wavs += list(wave)
-    #     wavs += [0] * 10000
+    for i, wave in enumerate(waveform):
+        wave = wave.squeeze()[:attn[i]]
+        wave = wave.squeeze()
+        wavs += list(wave)
+        wavs += [0] * 10000
     
-    # # process_time = time.time() - start
-    # # audio_time = len(wavs) / 22050
-    # # print(f" > Processing time: {process_time}")
-    # # print(f" > Real-time factor: {process_time / audio_time}")
+    # process_time = time.time() - start
+    # audio_time = len(wavs) / 22050
+    # print(f" > Processing time: {process_time}")
+    # print(f" > Real-time factor: {process_time / audio_time}")
 
     release_trt_resources(models)
 
@@ -539,13 +534,13 @@ if __name__ == "__main__":
     # --------------------------------------
     # Text init
     # --------------------------------------
-    # text="मेरा. नमस्ते. \
-    #     नमस्ते आपका नाम क्या है. नमस्ते आपका नाम क्या है. \
-    #     नमस्ते आपका नाम क्या है. नमस्ते आपका नाम क्या है."
+    text="मेरा. नमस्ते. \
+        नमस्ते आपका नाम क्या है. नमस्ते आपका नाम क्या है. \
+        नमस्ते आपका नाम क्या है. नमस्ते आपका नाम क्या है."
     # text="नमस्ते आपका नाम क्या है. नमस्ते आपका नाम क्या है. \
     #     नमस्ते आपका नाम क्या है. नमस्ते आपका नाम क्या है. \
     #     नमस्ते आपका नाम क्या है. नमस्ते आपका नाम क्या है."
-    text="नमस्ते आपका नाम क्या है. नमस्ते आपका नाम क्या है."
+    # text="नमस्ते आपका नाम क्या है. नमस्ते आपका नाम क्या है."
     # text="नमस्ते आपका नाम क्या है. नाम भारत हैं."
     # text="नमस्ते आपका नाम क्या है."
     # text = "मेरा. नाम भारत हैं. नमस्ते आपका नाम क्या है. नमस्ते आपका नाम क्या है"

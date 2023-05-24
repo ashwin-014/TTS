@@ -51,11 +51,8 @@ def allocate_binding_buffer(types_dict, shapes_dict):
     Allocate binding buffers for trt based on provided types and shapes dict
     '''
     return {
-        k: torch.empty(
-            size=shape,
-            dtype=types_dict[k],
-            device='cuda',
-        )
+        # k: cp.ascontiguousarray(cp.zeros(shape).astype(types_dict[k]))
+        k: np.ascontiguousarray(np.zeros(np.prod(shape)).astype(types_dict[k]))
         for k, shape in shapes_dict.items()
     }
 
@@ -74,12 +71,13 @@ def _allocate_memory(model):
         dtype = trt.nptype(model["engine"].get_binding_dtype(binding))
 
         if model["engine"].binding_is_input(binding):
-            bindings[binding_idx] = int(inputs[binding].data_ptr())
-            device_memory_addresses[binding] = int(inputs[binding].data_ptr())
+            err = cuda.cuMemHostRegister(inputs[binding].ctypes.data, inputs[binding].nbytes, cuda.CU_MEMHOSTREGISTER_DEVICEMAP)
+            err, device_memory_addresses[binding] = cuda.cuMemAlloc(inputs[binding].nbytes)
+            bindings[binding_idx] = int(device_memory_addresses[binding])
         else:
-            bindings[binding_idx] = int(outputs[binding].data_ptr())
-            device_memory_addresses[binding] = int(outputs[binding].data_ptr())
-            
+            err, = cuda.cuMemHostRegister(outputs[binding].ctypes.data, outputs[binding].nbytes, cuda.CU_MEMHOSTREGISTER_DEVICEMAP)
+            err, device_memory_addresses[binding] = cuda.cuMemAlloc(outputs[binding].nbytes)
+            bindings[binding_idx] = int(device_memory_addresses[binding])
     return {
         "bindings": bindings,
         "inputs": inputs,
@@ -98,9 +96,22 @@ def batch():
     )
 
     start = time.time()
+    # text="मेरा. नाम भारत हैं. नमस्ते आपका नाम क्या है. नमस्ते आपका नाम क्या है. \
+    #                     नमस्ते आपका नाम क्या है. नमस्ते आपका नाम क्या है. नमस्ते आपका नाम क्या है. नमस्ते आपका नाम क्या है.\
+    #                      नमस्ते आपका नाम क्या है. नमस्ते आपका नाम क्या है. नमस्ते आपका नाम क्या है. नमस्ते आपका नाम क्या है. \
+    #                      नमस्ते आपका नाम क्या है. नमस्ते आपका नाम क्या है. नमस्ते आपका नाम क्या है. \
+    #                      नमस्ते आपका नाम क्या है. नमस्ते आपका नाम क्या है. नमस्ते आपका नाम क्या है."
 
+    # text="मेरा. नमस्ते. \
+    #     नमस्ते आपका नाम क्या है. नमस्ते आपका नाम क्या है. \
+    #     नमस्ते आपका नाम क्या है. नमस्ते आपका नाम क्या है."
+    # text="नमस्ते आपका नाम क्या है. नमस्ते आपका नाम क्या है. \
+    #     नमस्ते आपका नाम क्या है. नमस्ते आपका नाम क्या है. \
+    #     नमस्ते आपका नाम क्या है. नमस्ते आपका नाम क्या है."
+    # text="नमस्ते आपका नाम क्या है. नमस्ते आपका नाम क्या है."
     text="नमस्ते आपका नाम क्या है. मुझे ये करना हे भारत हैं नाम."
-
+    # text="नमस्ते आपका नाम क्या है."  
+    # text = "मेरा. नाम भारत हैं. नमस्ते आपका नाम क्या है. नमस्ते आपका नाम क्या है"
     seg = pysbd.Segmenter(language="en", clean=True)
     sens = seg.segment(text)
     print(" > Text splitted to sentences.")
@@ -135,7 +146,7 @@ def trt_exec(
     print(speaker_id)
     start = time.time()
 
-    hififastpitch["io"]["inputs"]["fastpitch/x"][:bs_to_use, :] = np.ascontiguousarray(inputs)[:bs_to_use, :]
+    hififastpitch["io"]["inputs"]["fastpitch/x"][:np.prod(inputs.shape)] = np.ascontiguousarray(inputs.flatten())[:]
     print(hififastpitch["io"]["inputs"]["fastpitch/x"])
 
     err, = cuda.cuMemcpyHtoDAsync(
@@ -146,7 +157,7 @@ def trt_exec(
     )
 
     hififastpitch["context"].set_binding_shape(hififastpitch["engine"].get_binding_index("fastpitch/x"), 
-                                                hififastpitch["io"]["inputs"]["fastpitch/x"][:bs_to_use, :].shape)
+                                                inputs.shape)
     print(hififastpitch["engine"].get_tensor_shape("fastpitch/x"))
     
     hififastpitch["io"]["inputs"]["fastpitch/speaker_id"] = speaker_id
@@ -182,7 +193,7 @@ def trt_exec(
 
     cuda.cuStreamSynchronize(hififastpitch["data_stream"]["fastpitch/speaker_id"])
 
-    print(hififastpitch["io"]["outputs"]["fastpitch/decoder_output"][:bs_to_use])
+    print(hififastpitch["io"]["outputs"]["fastpitch/decoder_output"][:bs_to_use * 80 * 817].reshape((bs_to_use, 80, 817)))
 
     err, = cuda.cuMemcpyDtoHAsync(
         hififastpitch["io"]["outputs"]["fastpitch/alignments"].ctypes.data,
@@ -203,13 +214,13 @@ def trt_exec(
     print(hififastpitch["engine"].get_binding_shape("hifigan/o"))
 
     cuda.cuStreamSynchronize(hififastpitch["data_stream"]["fastpitch/alignments"])
-    attn = hififastpitch["io"]["outputs"]["fastpitch/alignments"].sum(axis=(-1, -2))
+    attn = hififastpitch["io"]["outputs"]["fastpitch/alignments"][:bs_to_use * 817 * 24].reshape((bs_to_use, 817, 24)).sum(axis=(-1, -2))
     attn = (attn - 5) * 256
     attn = attn.astype(np.int32)
 
     wavs = []
     cuda.cuStreamSynchronize(hififastpitch["data_stream"]["hifigan/o"])
-    for i, wave in enumerate(hififastpitch["io"]["outputs"]["hifigan/o"][:bs_to_use]):
+    for i, wave in enumerate(hififastpitch["io"]["outputs"]["hifigan/o"][:bs_to_use * 1 * 209152].reshape((bs_to_use, 1, 209152))):
         wave = wave.squeeze()[: attn[i]]
         wave = wave.squeeze()
         wavs += list(wave)
@@ -266,13 +277,13 @@ def trt_batch():
     # --------------------------------------
     # Text init
     # --------------------------------------
-    # text="मेरा. नमस्ते. \
+    text="मेरा. नमस्ते."# \
     #     नमस्ते आपका नाम क्या है. नमस्ते आपका नाम क्या है. \
     #     नमस्ते आपका नाम क्या है. नमस्ते आपका नाम क्या है."
     # text="नमस्ते आपका नाम क्या है. नमस्ते आपका नाम क्या है. \
     #     नमस्ते आपका नाम क्या है. नमस्ते आपका नाम क्या है. \
     #     नमस्ते आपका नाम क्या है. नमस्ते आपका नाम क्या है."
-    text="नमस्ते आपका नाम क्या है. नमस्ते आपका नाम क्या है."
+    # text="नमस्ते आपका नाम क्या है. नमस्ते आपका नाम क्या है."
     # text="नमस्ते आपका नाम क्या है. नाम भारत हैं."
     # text="नमस्ते आपका नाम क्या है."
     # text = "मेरा. नाम भारत हैं. नमस्ते आपका नाम क्या है. नमस्ते आपका नाम क्या है"
@@ -298,7 +309,7 @@ def trt_batch():
     # --------------------------------------
 
     start = time.time()
-    for i in range(100):
+    for i in range(1):
         wav = trt_exec(inputs, speaker_id, hififastpitch)
     print(f"done in {time.time() - start}")
 
