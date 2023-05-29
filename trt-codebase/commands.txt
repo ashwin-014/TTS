@@ -22,3 +22,30 @@ python TTS/code/trt-codebase/decompose_fastpitch_onnx.py \
 
 
 polygraphy run /tmp/emb.onnx --onnxrt --input-shapes x:[2,24] --validate
+
+# trtexec-session
+sudo docker run \
+    --shm-size=16g \
+    --gpus device=0 \
+    --rm -it \
+    --entrypoint bash \
+    -v /datadrive/priyam-workspace/tts/:/priyam-workspace/tts \
+    priyamm/model-analyzer:latest
+
+# trex-session
+sudo docker run \
+    --shm-size=16g \
+    --gpus device=0 \
+    --rm -it \
+    --entrypoint bash \
+    -v /datadrive/priyam-workspace/tts/:/priyam-workspace/tts \
+    priyamm/tts-trt-explorer:latest
+
+# tts-trt
+sudo docker run \
+    --shm-size=16g \
+    --gpus device=0 \
+    --rm -it \
+    --entrypoint bash \
+    -v /datadrive/priyam-workspace/tts/:/priyam-workspace/tts \
+    priyamm/tts-trt:latest

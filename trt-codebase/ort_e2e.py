@@ -6,6 +6,9 @@ import onnx
 import onnxruntime as ort
 import numpy as np
 import scipy
+import os
+import sys
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from TTS.api import TTS
 # from typing import List, Any, Dict
 
@@ -72,7 +75,12 @@ def ort_exec(
     start = time.time()
     # Fastpitch
     outputs_ = fastpitch_ort_sess.run(
-        ["model_outputs", "alignments", "pitch", "durations_log"],
+        # ["model_outputs", "alignments", "pitch", "durations_log"],
+        ['model_outputs', 'alignments', 'pitch',
+        'durations_log', "x_lengths", "y_lengths",
+        "o_en", "x_emb", "o_dr", "o_pitch_emb",
+        "o_en_ex_in", "o_en_ex_out", "y_mask", 
+        "y_mask_original", "x_mask", "x_mask_original"],
         {"x": inputs, "speaker_id": speaker_id},
     )
     
@@ -88,12 +96,13 @@ def ort_exec(
     # vocoder_inputs = model_outputs_.transpose(1, 2)
     # waveform = hifigan_ort_sess.run(None, {"c": vocoder_inputs.cpu().numpy()})
     # waveform = torch.Tensor(waveform).squeeze(0)
-    vocoder_inputs = np.transpose(model_outputs_, (0, 2, 1))
-    print(vocoder_inputs.shape)
-    print(vocoder_inputs)
-    waveform = hifigan_ort_sess.run(None, {"c": vocoder_inputs})
-    print(len(waveform))
-    waveform = np.squeeze(waveform, axis=0)
+    # vocoder_inputs = np.transpose(model_outputs_, (0, 2, 1))
+    # print(vocoder_inputs.shape)
+    # print(vocoder_inputs)
+    # waveform = hifigan_ort_sess.run(["o", "o_shape"], {"c": vocoder_inputs})
+    waveform = hifigan_ort_sess.run(["o", "o_shape"], {"c": model_outputs_})
+    print(len(waveform[0]))
+    waveform = np.squeeze(waveform[0], axis=0)
     print("squeezed: ", waveform.shape)
 
     # attn = torch.sum(attn, dim=(-1, -2))
@@ -125,19 +134,24 @@ def onnx_batch():
     """
     # Model init
     # --------------------------------------
-    onnx_model = onnx.load("nosqueeze/fastpitch.onnx")
+    # onnx_model = onnx.load("models/v1/hi/final_unsqueeze_notranspose/fastpitch_unsqueeze_all_outputs_hardcoded_long.onnx")
+    # onnx_model = onnx.load("models/v1/hi/final_unsqueeze_notranspose/fastpitch_unsqueeze_all_outputs_hardcoded.onnx")
+    onnx_model = onnx.load("models/v1/hi/final_unsqueeze_notranspose/fastpitch_unsqueeze_all_outputs_dynamic.onnx")
     onnx.checker.check_model(onnx_model)
-    # print(onnx_model.graph.input, onnx_model.graph.output)
     fastpitch_ort_sess = ort.InferenceSession(
-        "onnx/fastpitch.onnx", providers=["CUDAExecutionProvider"]
+        # "models/v1/hi/final_unsqueeze_notranspose/fastpitch_unsqueeze_all_outputs_hardcoded_long.onnx", providers=["CUDAExecutionProvider"]
+        # "models/v1/hi/final_unsqueeze_notranspose/fastpitch_unsqueeze_all_outputs_hardcoded.onnx", providers=["CUDAExecutionProvider"]
+        "models/v1/hi/final_unsqueeze_notranspose/fastpitch_unsqueeze_all_outputs_dynamic.onnx", providers=["CUDAExecutionProvider"]
     )
     print("Initialised fastpitch...")
 
-    onnx_model = onnx.load("nosqueeze/vocoder.onnx")
+    # onnx_model = onnx.load("nosqueeze/vocoder.onnx")
+    onnx_model = onnx.load("models/v1/hi/final_unsqueeze_notranspose/vocoder_with_shape.onnx")
     onnx.checker.check_model(onnx_model)
     # print(onnx_model.graph.input, onnx_model.graph.output)
     hifigan_ort_sess = ort.InferenceSession(
-        "onnx/vocoder.onnx", providers=["CUDAExecutionProvider"]
+        # "onnx/vocoder.onnx", providers=["CUDAExecutionProvider"]
+        "models/v1/hi/final_unsqueeze_notranspose/vocoder_with_shape.onnx", providers=["CUDAExecutionProvider"]
     )
     print("Initialised hifigan...")
     # --------------------------------------
@@ -151,8 +165,8 @@ def onnx_batch():
     #     नमस्ते आपका नाम क्या है. नमस्ते आपका नाम क्या है. \
     #     नमस्ते आपका नाम क्या है. नमस्ते आपका नाम क्या है."
     # text="नमस्ते आपका नाम क्या है. नमस्ते आपका नाम क्या है."
-    text="नमस्ते आपका नाम क्या है."
-    
+    # text="नमस्ते आपका नाम क्या है आपका नाम क्या है आपका नाम क्या है."
+    text="नमस्ते"    
 
     # text = "मेरा. नाम भारत हैं. नमस्ते आपका नाम क्या है. नमस्ते आपका नाम क्या है"
     seg = pysbd.Segmenter(language="en", clean=True)
@@ -180,7 +194,7 @@ def onnx_batch():
     print(f"done in {time.time() - start}")
 
     wav = np.array(wav)
-    save_wav(wav=wav, path="nosqueeze/onnx_output.wav", sample_rate=22050)
+    save_wav(wav=wav, path="models/v1/hi/final_unsqueeze_notranspose/onnx_output_h.wav", sample_rate=22050)
 
 
 if __name__ == "__main__":

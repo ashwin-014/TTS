@@ -64,7 +64,9 @@ def _allocate_memory(model):
     """Helper function for binding several inputs at once and pre-allocating the results."""
     # Allocate memories as 1D linear buffers for simpler handling of dynamic shapes.
     inputs = allocate_binding_buffer(model["input_types"], model["input_shapes"])
+    # print(model["output_shapes"].keys())
     outputs = allocate_binding_buffer(model["output_types"], model["output_shapes"])
+    # print(outputs.keys())
 
     bindings = [None] * model["engine"].num_bindings
     device_memory_addresses = {}
@@ -88,8 +90,8 @@ def _allocate_memory(model):
 
 def batch():
     tts = TTS(
-        model_path="./models/v1/hi/hififastpitch/best_model.pth",
-        config_path="./models/v1/hi/hififastpitch/config.json",
+        model_path="./models/v1/hi/fastpitch/best_model.pth",
+        config_path="./models/v1/hi/fastpitch/config.json",
         vocoder_path="./models/v1/hi/hifigan/best_model.pth",
         vocoder_config_path="./models/v1/hi/hifigan/config.json",
         progress_bar=True,
@@ -136,11 +138,10 @@ def save_wav(*, wav: np.ndarray, path: str, sample_rate: int = None) -> None:
 def trt_exec(
     x: np.array,
     speaker_id: np.array,
-    hififastpitch,
+    fastpitch,
+    hifigan,
 ) -> list:
-
     bs_to_use = x.shape[0]
-
     """
     Executes TRT code
     """
@@ -153,33 +154,117 @@ def trt_exec(
     # x_max = int(torch.max(x, 1).cpu().numpy().tolist())
     speaker_id = torch.tensor(speaker_id).to("cuda")
 
-    hififastpitch["io"]["inputs"]["fastpitch/x"][:np.prod([bs_to_use, x.shape[1]])] = x.flatten()[:]
+    # Fastpitch
+    fastpitch["io"]["inputs"]["x"][:np.prod([bs_to_use, x.shape[1]])] = x.flatten()[:]
+    # print(fastpitch["io"]["inputs"]["x"])
 
-    hififastpitch["context"].set_binding_shape(hififastpitch["engine"].get_binding_index("fastpitch/x"), 
-                                                x.shape)
+
+    # err, = cuda.cuMemcpyHtoD(
+    #     fastpitch["io"]["device_mem_address"]["x"], 
+    #     fastpitch["io"]["inputs"]["x"].ctypes.data, 
+    #     fastpitch["io"]["inputs"]["x"].nbytes,
+    #     # fastpitch["data_stream"]
+    # )
+    # fastpitch["io"]["inputs"]["x"][:bs_to_use] = inputs[:bs_to_use]
+    # tmp = np.ascontiguousarray(inputs)
+    # err, = cuda.cuMemcpyHtoD(
+    #     fastpitch["io"]["device_mem_address"]["x"], 
+    #     tmp.ctypes.data, 
+    #     tmp.nbytes,
+    #     # fastpitch["data_stream"]
+    # )
+
+    # tmp = np.ascontiguousarray(np.zeros(inputs.shape).astype(np.int32))
+
+    # err, = cuda.cuMemcpyDtoH(
+    #     tmp.ctypes.data, 
+    #     fastpitch["io"]["device_mem_address"]["x"],
+    #     inputs.nbytes,
+    #     # fastpitch["data_stream"]
+    # )
     
-    hififastpitch["io"]["inputs"]["fastpitch/speaker_id"][:int(np.prod(speaker_id.shape))] = speaker_id.flatten()[:]
+    # print(tmp)
 
-    assert hififastpitch["context"].all_binding_shapes_specified
+    fastpitch["context"].set_binding_shape(fastpitch["engine"].get_binding_index("x"), x.shape)
+    # print(fastpitch["engine"].get_tensor_shape("x"))
+    
+    # fastpitch["io"]["inputs"]["speaker_id"] = speaker_id
+    # err, = cuda.cuMemcpyHtoD(
+    #     fastpitch["io"]["device_mem_address"]["speaker_id"], 
+    #     fastpitch["io"]["inputs"]["speaker_id"].ctypes.data, 
+    #     fastpitch["io"]["inputs"]["speaker_id"].nbytes,
+    #     # fastpitch["data_stream"]
+    # )
+    assert fastpitch["context"].all_binding_shapes_specified
+    fastpitch["context"].execute_v2(bindings=fastpitch["io"]["bindings"])
 
-    hififastpitch["context"].execute_v2(bindings=hififastpitch["io"]["bindings"])
+    y_lengths_max = int(torch.max(fastpitch["io"]["outputs"]["y_lengths"][:bs_to_use]).cpu().numpy().tolist())
 
-    cudart.cudaDeviceSynchronize()
+    print(fastpitch["io"]["outputs"]["x_emb"][:np.prod([bs_to_use, x.shape[1], 512])].reshape([bs_to_use, x.shape[1], 512]))
+    print(fastpitch["io"]["outputs"]["o_en"][:np.prod([bs_to_use, 512, x.shape[1]])].reshape([bs_to_use, 512, x.shape[1]]))
 
-    print(hififastpitch["io"]["outputs"]["fastpitch/x_emb"][:bs_to_use * 200 * 512 ].reshape(bs_to_use, 200, 512))
+    # print(np.prod([bs_to_use, x.shape[1]]))
+    # print(fastpitch["io"]["outputs"]["o_dr"][:np.prod([bs_to_use, x.shape[1]])].shape)
+    print(fastpitch["io"]["outputs"]["o_dr"][:np.prod([bs_to_use, x.shape[1]])].reshape([bs_to_use, x.shape[1]]))
+    print(fastpitch["io"]["outputs"]["pitch"][:np.prod([bs_to_use, 1, x.shape[1]])].reshape([bs_to_use, 1, x.shape[1]]))
+    print(fastpitch["io"]["outputs"]["o_pitch_emb"][:np.prod([bs_to_use, 512, x.shape[1]])].reshape([bs_to_use, 512, x.shape[1]]))
+    print(fastpitch["io"]["outputs"]["x_lengths"][:bs_to_use])
+    print(fastpitch["io"]["outputs"]["y_lengths"][:bs_to_use])
+    print(fastpitch["io"]["outputs"]["x_mask"][:np.prod([bs_to_use, x.shape[1]])].reshape([bs_to_use, x.shape[1]]))        
+    print(fastpitch["io"]["outputs"]["x_mask_original"][:np.prod([bs_to_use, x.shape[1]])].reshape([bs_to_use, x.shape[1]]))        
+    print("Y_MASK: ", fastpitch["io"]["outputs"]["y_mask"][:np.prod([bs_to_use, y_lengths_max])].reshape([bs_to_use, y_lengths_max])) 
+    print("Y_MASK_ORIGINAL: ", fastpitch["io"]["outputs"]["y_mask_original"][:np.prod([bs_to_use, y_lengths_max])].reshape([bs_to_use, y_lengths_max]))        
+    # print(fastpitch["io"]["outputs"]["o_en_ex_in"][:np.prod([bs_to_use, 512, y_lengths_max])].reshape([bs_to_use, 512, y_lengths_max]))    
+    # print(fastpitch["io"]["outputs"]["o_en_ex_out"][:np.prod([bs_to_use, 512, y_lengths_max])].reshape([bs_to_use, 512, y_lengths_max]))    
+    print(fastpitch["io"]["outputs"]["model_outputs"][:np.prod([bs_to_use, 80, y_lengths_max])].reshape([bs_to_use, 80, y_lengths_max]))
+
+    # print(fastpitch["engine"].get_binding_shape("model_outputs"))
+    # print(fastpitch["engine"].get_binding_shape("alignments"))
 
 
-    y_lengths_max = int(torch.max(hififastpitch["io"]["outputs"]["fastpitch/y_lengths"][:bs_to_use]).cpu().numpy().tolist())
-    print(hififastpitch["io"]["outputs"]["fastpitch/y_lengths"][:bs_to_use])
-    attn = hififastpitch["io"]["outputs"]["fastpitch/alignments"][:bs_to_use * y_lengths_max * x.shape[1] ].reshape((bs_to_use, y_lengths_max, x.shape[1]))
+    # err, = cuda.cuMemcpyDtoH(
+    #     fastpitch["io"]["outputs"]["alignments"].ctypes.data,
+    #     fastpitch["io"]["device_mem_address"]["alignments"],
+    #     trt.volume((bs_to_use, 817, 24)) * np.dtype(trt.nptype(fastpitch["engine"].get_binding_dtype("alignments"))).itemsize,
+    #     # fastpitch["data_stream"]
+    # )
+
+    # vocoder_inputs = np.transpose(fastpitch["io"]["outputs"]["model_outputs"][:bs_to_use], (0, 2, 1))
+    # print(vocoder_inputs.shape)
+
+    # print(vocoder_inputs[:bs_to_use+1])
+
+    # hifigan["io"]["inputs"]["c"][:bs_to_use] = np.ascontiguousarray(vocoder_inputs)[:bs_to_use]
+    
+    # err, = cuda.cuMemcpyHtoD(
+    #     hifigan["io"]["device_mem_address"]["c"],
+    #     hifigan["io"]["inputs"]["c"].ctypes.data,
+    #     hifigan["io"]["inputs"]["c"].nbytes,
+    #     # hifigan["data_stream"]
+    # )
+
+    hifigan["context"].set_binding_shape(hifigan["engine"].get_binding_index("c"), (bs_to_use, 80, 1105))
+    # hifigan["io"]["bindings"][hifigan["engine"].get_binding_index("c")] = int(fastpitch["io"]["device_mem_address"]["model_outputs"])
+    hifigan["io"]["bindings"][hifigan["engine"].get_binding_index("c")] = int(fastpitch["io"]["device_mem_address"]["model_outputs"])
+    assert hifigan["context"].all_binding_shapes_specified
+    hifigan["context"].execute_v2(bindings=hifigan["io"]["bindings"])
+
+    # err, = cuda.cuMemcpyDtoH(
+    #     hifigan["io"]["outputs"]["o"].ctypes.data,
+    #     hifigan["io"]["device_mem_address"]["o"],
+    #     trt.volume((bs_to_use, 1, 209152)) * np.dtype(trt.nptype(hifigan["engine"].get_binding_dtype("o"))).itemsize,
+    #     # hifigan["data_stream"]
+    # )
+
+    # print(hifigan["engine"].get_binding_shape("o"))
+
+    o_shape = hifigan["io"]["outputs"]["o_shape"]
+    waveform = hifigan["io"]["outputs"]["o"][:bs_to_use * 1 * o_shape].reshape((bs_to_use, 1, o_shape)).cpu().numpy()
+
+    attn = fastpitch["io"]["outputs"]["alignments"][:np.prod([bs_to_use, y_lengths_max, x.shape[1]])].reshape([bs_to_use, y_lengths_max, x.shape[1]])
     attn = attn.sum(axis=(-1, -2))
-    attn = attn - 5
-    # attn = attn.cpu().numpy()
-    o_shape = hififastpitch["io"]["outputs"]["hifigan/o_shape"]
-    print(o_shape)
-    waveform = hififastpitch["io"]["outputs"]["hifigan/o"][:bs_to_use * 1 * o_shape].reshape((bs_to_use, 1, o_shape)).cpu().numpy()
-    attn = (attn * int(waveform.shape[2]/attn.max())).to(torch.int)
-
+    attn = (attn - 5) * 256
+    attn = attn.to(torch.int32).to("cpu").numpy()
 
     wavs = []
     for i, wave in enumerate(waveform):
@@ -200,12 +285,18 @@ def trt_batch():
     """
     # Model init
     # --------------------------------------
-    hififastpitch = load_model("models/v1/hi/final_unsqueeze_notranspose/hififastpitch_with_shape.engine")
-    hififastpitch["data_stream"] = {}
-    for binding in hififastpitch["engine"]:
-        err, hififastpitch["data_stream"][binding] = cuda.cuStreamCreate(1)
-    err, hififastpitch["model_stream"] = cuda.cuStreamCreate(1)
-    print("Initialised hififastpitch...")
+    fastpitch = load_model("models/v1/hi/final_unsqueeze_notranspose/fastpitch_unsqueeze_all_outputs.engine")
+    # fastpitch = load_model("models/v1/hi/nosqueeze/fastpitch_unsqueeze.engine")
+    # fastpitch = load_model("models/v1/hi/nosqueeze/fastpitch.engine")
+    # err, fastpitch["data_stream"] = cuda.cuStreamCreate(0)
+    # err, fastpitch["model_stream"] = cuda.cuStreamCreate(0)
+    print("Initialised fastpitch...")
+
+    hifigan = load_model("models/v1/hi/final_unsqueeze_notranspose/vocoder_with_shape.engine")
+    # err, hifigan["data_stream"] = cuda.cuStreamCreate(0)
+    # err, hifigan["model_stream"] = cuda.cuStreamCreate(0)
+    
+    print("Initialised hifigan...")
 
     max_bs = 12
     num_of_mel_feats = 80
@@ -215,43 +306,70 @@ def trt_batch():
     vocoder_output_shape = 282880
 
     # setting shape and types for FastPitch
-    hififastpitch["input_shapes"] = {
-        "fastpitch/x": (max_bs, max_encoder_sequence_length),
-        "fastpitch/speaker_id": (1),
+    fastpitch["input_shapes"] = {
+        "x": (max_bs, max_encoder_sequence_length),
+        "speaker_id": (1),
     }
-    hififastpitch["input_types"] = {
-        "fastpitch/x": torch.int32,
-        "fastpitch/speaker_id": torch.int32,
+    fastpitch["input_types"] = {
+        "x": torch.int32,
+        "speaker_id": torch.int32,
     }
-    hififastpitch["output_shapes"] = {
-        "fastpitch/decoder_output": (max_bs, num_of_mel_feats, max_decoder_sequence_length),  
-        "fastpitch/alignments": (max_bs, max_decoder_sequence_length, max_encoder_sequence_length),
-        "fastpitch/pitch": (max_bs, 1, max_encoder_sequence_length),
-        "fastpitch/durations_log": (max_bs, 1, max_encoder_sequence_length),
-        "fastpitch/x_lengths":(max_bs,),
-        "fastpitch/y_lengths":(max_bs,),
-        "fastpitch/o_en":(max_bs, hidden_size, max_encoder_sequence_length),
-        "fastpitch/x_emb":(max_bs, max_encoder_sequence_length, hidden_size),
-        "fastpitch/o_dr":(max_bs, ),
-        "hifigan/o": (max_bs, 1, vocoder_output_shape),
-        "hifigan/o_shape": (1),
+    fastpitch["output_shapes"] = {
+        "model_outputs": (max_bs, num_of_mel_feats, max_decoder_sequence_length),  
+        "alignments": (max_bs, max_decoder_sequence_length, max_encoder_sequence_length),
+        "pitch": (max_bs, 1, max_encoder_sequence_length),
+        "durations_log": (max_bs, 1, max_encoder_sequence_length),
+        "x_lengths":(max_bs,),
+        "y_lengths":(max_bs,),
+        "o_en":(max_bs, hidden_size, max_encoder_sequence_length),
+        "x_emb":(max_bs, max_encoder_sequence_length, hidden_size),
+        "o_dr":(max_bs, max_encoder_sequence_length),
+        "o_pitch_emb": (max_bs, hidden_size, max_encoder_sequence_length),
+        "o_en_ex_in": (max_bs, hidden_size, max_decoder_sequence_length),
+        "o_en_ex_out": (max_bs, hidden_size, max_decoder_sequence_length),
+        "y_mask": (max_bs, max_decoder_sequence_length),
+        "y_mask_original": (max_bs, max_decoder_sequence_length),
+        "x_mask": (max_bs, 1, max_encoder_sequence_length),
+        "x_mask_original": (max_bs, 1, max_encoder_sequence_length),
     }
-    hififastpitch["output_types"] = {
-        "fastpitch/decoder_output": torch.float32,
-        "fastpitch/alignments": torch.float32,
-        "fastpitch/pitch": torch.float32,
-        "fastpitch/durations_log": torch.float32,
-        "fastpitch/x_lengths": torch.int64,
-        "fastpitch/y_lengths": torch.float32,
-        "fastpitch/o_en": torch.float32,
-        "fastpitch/x_emb": torch.float32,
-        "fastpitch/o_dr": torch.float32,
-        "hifigan/o": torch.float32,
-        "hifigan/o_shape": torch.int64,
+    fastpitch["output_types"] = {
+        "model_outputs": torch.float32,
+        "alignments": torch.float32,
+        "pitch": torch.float32,
+        "durations_log": torch.float32,
+        "x_lengths": torch.int64,
+        "y_lengths": torch.float32,
+        "o_en": torch.float32,
+        "x_emb": torch.float32,
+        "o_dr": torch.float32,
+        "o_pitch_emb": torch.float32,
+        "o_en_ex_in": torch.float32,
+        "o_en_ex_out": torch.float32,
+        "y_mask": torch.float32,
+        "y_mask_original": torch.int8,
+        "x_mask": torch.float32,
+        "x_mask_original": torch.float32,
     }
-    hififastpitch["io"] = _allocate_memory(hififastpitch)
+    fastpitch["io"] = _allocate_memory(fastpitch)
 
+    # setting shape and types for HiFiGAN
+    hifigan["input_shapes"] = {
+        "c": (max_bs, num_of_mel_feats, max_decoder_sequence_length),
+    }
+    hifigan["input_types"] = {
+        "c": torch.float32,
+    }
+    hifigan["output_shapes"] = {
+        "o": (max_bs, 1, vocoder_output_shape),
+        "o_shape": (1)
+    }
+    hifigan["output_types"] = {
+        "o": torch.float32,
+        "o_shape": torch.int64
+    }
+    hifigan["io"] = _allocate_memory(hifigan)
     # --------------------------------------
+
     # Text init
     # --------------------------------------
     # text="मेरा. नमस्ते. \
@@ -270,8 +388,8 @@ def trt_batch():
     sens = seg.segment(text)
     print(" > Text splitted to sentences.")
     print(sens)
-    
     # --------------------------------------
+
     # TRT Inputs init
     # --------------------------------------
     from TTS.config import load_config
@@ -287,20 +405,12 @@ def trt_batch():
 
     start = time.time()
     for i in range(1):
-        wav = trt_exec(inputs, speaker_id, hififastpitch)
+        wav = trt_exec(inputs, speaker_id, fastpitch, hifigan)
     print(f"done in {time.time() - start}")
 
-    # print(wav)
-
     wav = np.array(wav)
-    # wav = wav.cpu().numpy()
-    save_wav(wav=wav, path="models/v1/hi/final_unsqueeze_notranspose/trt_output_e2e.wav", sample_rate=22050)
-
-    for binding in hififastpitch["engine"]:
-        err, = cuda.cuStreamDestroy(hififastpitch["data_stream"][binding])
-
-    for node in hififastpitch["io"]["device_mem_address"].keys():
-        err, = cuda.cuMemFree(hififastpitch["io"]["device_mem_address"][node])
+    # save_wav(wav=wav, path="models/v1/hi/nosqueeze/trt_output.wav", sample_rate=22050)
+    save_wav(wav=wav, path="models/v1/hi/final_unsqueeze_notranspose/trt_output_torch.wav", sample_rate=22050)
 
 if __name__ == "__main__":
     # batch()

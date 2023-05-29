@@ -340,7 +340,7 @@ class Synthesizer(object):
 
             if not use_gl:
                 device_type = "cuda" if self.use_cuda else "cpu"
-                vocoder_inputs = outputs["outputs"]["model_outputs"].transpose(1, 2)
+                vocoder_inputs = outputs["outputs"]["model_outputs"]#.transpose(1, 2)
 
                 # traced_vocoder = torch.jit.script(self.vocoder_model, vocoder_inputs.to(device_type))
                 # torch.jit.save(traced_vocoder, "traced_vocoder.pt")
@@ -359,10 +359,12 @@ class Synthesizer(object):
                     opset_version=16,
                     do_constant_folding=True,
                     input_names=['c'],
-                    output_names=['o'],
-                    dynamic_axes={'c': {0: 'batch_size', 2: 'T'},
-                                'o': {0: 'batch_size', 2: 'T'}},
-                    verbose=True,
+                    output_names=['o', 'o_shape'],
+                    dynamic_axes={
+                        'c': {0: 'batch_size', 2: 'T'},
+                        'o': {0: 'batch_size', 2: 'T_'},
+                    },
+                    # verbose=True,
                 )
                 # import onnx
                 # import onnxruntime as ort
@@ -373,7 +375,7 @@ class Synthesizer(object):
                 # waveform = torch.Tensor(waveform).squeeze()
                 # print(waveform, type(waveform), waveform.size())
 
-                waveform = self.vocoder_model.inference(vocoder_inputs.to(device_type))
+                waveform, _ = self.vocoder_model.inference(vocoder_inputs.to(device_type))
                 # waveform = onnx_model.inference(vocoder_inputs.to(device_type))
                 # waveform = self.ort_sess.run(None, {'c': vocoder_inputs.cpu().numpy()})
                 # waveform = torch.Tensor(waveform).squeeze(0)

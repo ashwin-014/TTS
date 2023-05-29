@@ -263,7 +263,7 @@ class HifiganGenerator(torch.nn.Module):
         o = F.leaky_relu(o)
         o = self.conv_post(o)
         o = torch.tanh(o)
-        return o
+        return o, o.shape[2]
 
     @torch.no_grad()
     def inference(self, c):

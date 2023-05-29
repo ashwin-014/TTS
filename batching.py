@@ -88,12 +88,19 @@ def ort_exec(
     # vocoder_inputs = model_outputs_.transpose(1, 2)
     # waveform = hifigan_ort_sess.run(None, {"c": vocoder_inputs.cpu().numpy()})
     # waveform = torch.Tensor(waveform).squeeze(0)
-    vocoder_inputs = np.transpose(model_outputs_, (0, 2, 1))
+    # vocoder_inputs = np.transpose(model_outputs_, (0, 2, 1))
     # print(vocoder_inputs.shape)
-    print(vocoder_inputs)
-    waveform = hifigan_ort_sess.run(None, {"c": vocoder_inputs})
+    # print(vocoder_inputs)
+    waveform, waveform_shape = hifigan_ort_sess.run(None, {"c": model_outputs_})
+
+    print(waveform)
+
+    print(waveform.shape)
+
+    print(waveform_shape)
+
     # print(len(waveform))
-    waveform = np.squeeze(waveform, axis=0)
+    waveform = np.squeeze(waveform, axis=1)
     # print("squeezed: ", waveform.shape)
 
     # attn = torch.sum(attn, dim=(-1, -2))
@@ -126,19 +133,21 @@ def onnx_batch():
     # Model init
     # --------------------------------------
     # onnx_model = onnx.load("models/v1/hi/onnx/fastpitch.onnx")
-    onnx_model = onnx.load("models/v1/hi/nosqueeze/fastpitch_unsqueeze.onnx")
+    # onnx_model = onnx.load("models/v1/hi/nosqueeze/fastpitch_unsqueeze.onnx")
+    onnx_model = onnx.load("models/v1/hi/final_unsqueeze_notranspose/fastpitch_unsqueeze.onnx")
     onnx.checker.check_model(onnx_model)
     # print(onnx_model.graph.input, onnx_model.graph.output)
     fastpitch_ort_sess = ort.InferenceSession(
-        "models/v1/hi/onnx/fastpitch.onnx", providers=["CUDAExecutionProvider"]
+        "models/v1/hi/final_unsqueeze_notranspose/fastpitch_unsqueeze.onnx", providers=["CUDAExecutionProvider"]
     )
     print("Initialised fastpitch...")
 
-    onnx_model = onnx.load("models/v1/hi/onnx/vocoder.onnx")
+    # onnx_model = onnx.load("models/v1/hi/onnx/vocoder.onnx")
+    onnx_model = onnx.load("models/v1/hi/final_unsqueeze_notranspose/vocoder_with_shape.onnx")
     onnx.checker.check_model(onnx_model)
     # print(onnx_model.graph.input, onnx_model.graph.output)
     hifigan_ort_sess = ort.InferenceSession(
-        "models/v1/hi/onnx/vocoder.onnx", providers=["CUDAExecutionProvider"]
+        "models/v1/hi/final_unsqueeze_notranspose/vocoder_with_shape.onnx", providers=["CUDAExecutionProvider"]
     )
     print("Initialised hifigan...")
     # --------------------------------------
@@ -152,8 +161,8 @@ def onnx_batch():
     #     नमस्ते आपका नाम क्या है. नमस्ते आपका नाम क्या है. \
     #     नमस्ते आपका नाम क्या है. नमस्ते आपका नाम क्या है."
     # text="नमस्ते आपका नाम क्या है. नमस्ते आपका नाम क्या है."
-    text="नमस्ते आपका नाम क्या है."
-
+    # text="नमस्ते आपका नाम क्या है."
+    text = "मेरा. नाम भारत हैं. नमस्ते आपका नाम क्या है नमस्ते आपका हिंदी साहित्य का आरम्भ आठवीं शताब्दी से माना जाता है नाम क्या है नाम भारत हैं नाम हैं भारत नाम भारत हैं नाम भारत हैं नाम भारत हैं नाम हैं भारत नाम भारत हैं नाम भारत हैं"
     # text = "मेरा. नाम भारत हैं. नमस्ते आपका नाम क्या है. नमस्ते आपका नाम क्या है"
     seg = pysbd.Segmenter(language="en", clean=True)
     sens = seg.segment(text)
@@ -180,7 +189,7 @@ def onnx_batch():
     print(f"done in {time.time() - start}")
 
     wav = np.array(wav)
-    save_wav(wav=wav, path="models/v1/hi/onnx/onnx_output.wav", sample_rate=22050)
+    save_wav(wav=wav, path="output_batching.wav", sample_rate=22050)
 
 
 if __name__ == "__main__":

@@ -144,7 +144,6 @@ def generate_attn(dr, x_mask, y_mask=None):
     if y_mask is None:
         y_lengths = dr.sum(1).long()
         y_lengths[y_lengths < 1] = 1
-        print("DURING GENERATE ATTEN:    -------------")
         y_mask = torch.unsqueeze(sequence_mask(y_lengths, None), 1).to(dr.dtype)
     attn_mask = torch.unsqueeze(x_mask, -1) * torch.unsqueeze(y_mask, 2)
     attn = generate_path(dr, attn_mask.squeeze(1)).to(dr.dtype)
@@ -227,11 +226,13 @@ def decompose(
         # ----- Batching support -----
 
         x_lengths = torch.tensor(x.shape[1]).repeat(x.shape[0]).to(x.device)
+        print(x_lengths)
         x_mask_original = sequence_mask(x_lengths, x.shape[1]).to(x.dtype)
+        print(x_mask_original)
         x_mask_original = torch.where(x > 0, x_mask_original, 0)
         # x_mask = torch.unsqueeze(x_mask_original, 1).float()
         x_mask = x_mask_original.float()
-        
+
 
         # ----- ENCODER - START
 
@@ -249,6 +250,7 @@ def decompose(
         x_emb = torch.reshape(models["embedding"]["io"]["outputs"]["x_emb"][:np.prod([bs_to_use, x.shape[1], 512])],
                               [bs_to_use, x.shape[1], 512])
         x_emb = torch.transpose(x_emb, 1, -1)
+        print("\n\nx_emb: ", x_emb.shape)
 
 
 
@@ -264,12 +266,13 @@ def decompose(
                              [bs_to_use, 512, x.shape[1]])
         if g is not None:
             o_en = o_en + g
+        print("\n\no_en: ", o_en.shape)
 
-    #     # ----- ENCODER - END
+        # ----- ENCODER - END
 
 
 
-    #     # ----- DURATION PREDICTION - START
+        # ----- DURATION PREDICTION - START
 
         models["duration_predictor"]["io"]["inputs"]["o_en"][:np.prod([bs_to_use, 512, x.shape[1]])] = o_en.flatten()[:]
         models["duration_predictor"]["context"].set_binding_shape(models["duration_predictor"]["engine"].get_binding_index("o_en"), o_en.shape)
@@ -285,6 +288,9 @@ def decompose(
         o_dr = format_durations(o_dr_log, torch.unsqueeze(x_mask, 1)).squeeze(1)    
         o_dr = o_dr * x_mask_original
         y_lengths = o_dr.sum(1)
+        print("\n\no_dr: ", o_dr.shape)
+        print("y_lengths: ", y_lengths, " ", y_lengths.shape)
+        print("o_dr_log: ", o_dr_log.shape)
 
         # print(y_lengths)
         # print(y_lengths.shape)
@@ -307,7 +313,7 @@ def decompose(
         #                     [bs_to_use, 1, x.shape[1]]))
         o_pitch = torch.reshape(models["pitch_predictor"]["io"]["outputs"]["o_pitch"][:np.prod([bs_to_use, 1, x.shape[1]])],
                                 [bs_to_use, 1, x.shape[1]])
-
+        print("\n\no_pitch: ", o_pitch.shape)
 
 
         models["pitch_embedding"]["io"]["inputs"]["o_pitch"][:np.prod([bs_to_use, 1, x.shape[1]])] = o_pitch.flatten()[:]
@@ -319,6 +325,7 @@ def decompose(
         o_pitch_emb = torch.reshape(models["pitch_embedding"]["io"]["outputs"]["o_pitch_emb"][:np.prod([bs_to_use, 512, x.shape[1]])],
                                     [bs_to_use, 512, x.shape[1]])
         o_en = o_en + o_pitch_emb
+        print("\n\no_pitch_emb: ", o_pitch_emb.shape)
         
         # outputs after pitch predictor pass: o_en, o_pitch, o_pitch_emb
         # ----- PITCH PREDICTOR - END
@@ -327,9 +334,14 @@ def decompose(
 
         # ----- DECODER - START
 
-        y_mask = torch.unsqueeze(sequence_mask(y_lengths, None), 1).to(o_en.dtype)
+        # y_mask = torch.unsqueeze(sequence_mask(y_lengths, None), 1).to(o_en.dtype)
+        y_mask = sequence_mask(y_lengths, None)
+        print(y_mask)
         o_en_ex, attn = expand_encoder_outputs(o_en, o_dr, torch.unsqueeze(x_mask, 1), y_mask)
         y_length_max = int(torch.max(y_lengths).cpu().numpy().tolist())
+        print("\n\nattn: ", attn.shape)
+        print("o_en_ex: ", o_en_ex.shape)
+        print("y_mask: ", y_mask.shape)
 
         # print(y_mask)
 
@@ -345,7 +357,7 @@ def decompose(
         #                     [bs_to_use, 512, y_length_max]))
         o_en_ex_out = torch.reshape(models["positional_encoder"]["io"]["outputs"]["o_en_ex_out"][:np.prod([bs_to_use, 512, y_length_max])],
                                     [bs_to_use, 512, y_length_max])
-
+        print("\n\no_en_ex_out: ", o_en_ex_out.shape)
 
 
         models["decoder"]["io"]["inputs"]["o_en_ex"][:np.prod([bs_to_use, 512, y_length_max])] = o_en_ex_out.flatten()[:]
@@ -358,6 +370,7 @@ def decompose(
         #                     [bs_to_use, 80, y_length_max]))
         o_de = torch.reshape(models["decoder"]["io"]["outputs"]["o_de"][:np.prod([bs_to_use, 80, y_length_max])],
                             [bs_to_use, 80, y_length_max])
+        print("\n\no_de: ", o_de.shape)
 
         # outputs after decoder pass: y_mask, o_en_ex, attn, o_de
     
@@ -374,11 +387,13 @@ def decompose(
 
     # print("Fastpitch Decomposition completed successfully!")    
 
-    # # print(o_de)
+    # print(o_de)
 
-    # # print(o_de.shape)
+    # print(o_de.shape)
 
     waveform = vocoder.inference(outputs["model_outputs"])
+
+    print("Waveform shape: ", waveform.shape)
 
     attn = torch.sum(outputs["alignments"], dim=(-1, -2))
     attn = attn - 5
@@ -534,13 +549,14 @@ if __name__ == "__main__":
     # --------------------------------------
     # Text init
     # --------------------------------------
-    text="मेरा. नमस्ते. \
-        नमस्ते आपका नाम क्या है. नमस्ते आपका नाम क्या है. \
-        नमस्ते आपका नाम क्या है. नमस्ते आपका नाम क्या है."
+    # text="मेरा. नमस्ते. \
+    #     नमस्ते आपका नाम क्या है. क्या है नमस्ते. \
+    #     नमस्ते आपका नाम क्या है. नमस्ते आपका नाम क्या है."
+    # text="मेरा. नमस्ते."
     # text="नमस्ते आपका नाम क्या है. नमस्ते आपका नाम क्या है. \
     #     नमस्ते आपका नाम क्या है. नमस्ते आपका नाम क्या है. \
     #     नमस्ते आपका नाम क्या है. नमस्ते आपका नाम क्या है."
-    # text="नमस्ते आपका नाम क्या है. नमस्ते आपका नाम क्या है."
+    text="नमस्ते आपका नाम क्या है. नमस्ते आपका नाम क्या है."
     # text="नमस्ते आपका नाम क्या है. नाम भारत हैं."
     # text="नमस्ते आपका नाम क्या है."
     # text = "मेरा. नाम भारत हैं. नमस्ते आपका नाम क्या है. नमस्ते आपका नाम क्या है"

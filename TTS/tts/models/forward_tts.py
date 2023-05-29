@@ -320,6 +320,7 @@ class ForwardTTS(BaseTTS):
             y_lengths = dr.sum(1).long()
             y_lengths[y_lengths < 1] = 1
             y_mask = torch.unsqueeze(sequence_mask(y_lengths, None), 1).to(dr.dtype)
+            # y_mask = torch.unsqueeze(sequence_mask(y_lengths, torch.max(y_lengths)), 1).to(dr.dtype)
         attn_mask = torch.unsqueeze(x_mask, -1) * torch.unsqueeze(y_mask, 2)
         attn = generate_path(dr, attn_mask.squeeze(1)).to(dr.dtype)
         return attn
@@ -438,16 +439,22 @@ class ForwardTTS(BaseTTS):
         Returns:
             Tuple[torch.FloatTensor, torch.FloatTensor]: Decoder output, attention map from durations.
         """
-        y_mask = torch.unsqueeze(sequence_mask(y_lengths, None), 1).to(o_en.dtype)
+        y_len_max = torch.max(y_lengths)
+        y_mask_original = sequence_mask(y_lengths, y_len_max)
+        # y_mask_original = sequence_mask(y_lengths, None)
+        # y_mask = torch.unsqueeze(y_mask, 1).to(o_en.dtype)
+        # y_mask_original = sequence_mask(y_lengths, y_lengths.max())
+        # y_mask_original = sequence_mask(y_lengths, torch.max(y_lengths))
+        y_mask = y_mask_original.to(o_en.dtype)
         # expand o_en with durations
-        o_en_ex, attn = self.expand_encoder_outputs(o_en, dr, torch.unsqueeze(x_mask, 1), y_mask)
+        o_en_ex_in, attn = self.expand_encoder_outputs(o_en, dr, torch.unsqueeze(x_mask, 1), torch.unsqueeze(y_mask, 1))
         # positional encoding
         if hasattr(self, "pos_encoder"):
-            o_en_ex = self.pos_encoder(o_en_ex, y_mask)
+            o_en_ex_out = self.pos_encoder(o_en_ex_in, torch.unsqueeze(y_mask, 1))
         # decoder pass
-        o_de = self.decoder(o_en_ex, y_mask, g=g)
-        return o_de.transpose(1, 2), attn.transpose(1, 2)
-        # return o_de, attn.transpose(1, 2)   
+        o_de = self.decoder(o_en_ex_out, torch.unsqueeze(y_mask, 1), g=g)
+        # return o_de.transpose(1, 2), attn.transpose(1, 2)
+        return o_de, attn.transpose(1, 2), o_en_ex_in, o_en_ex_out, y_mask, y_mask_original
 
     def _forward_pitch_predictor(
         self,
@@ -696,7 +703,7 @@ class ForwardTTS(BaseTTS):
         # ----------
 
         # encoder pass
-        o_en, x_mask, g, _ = self._forward_encoder(x, x_mask, g)
+        o_en, x_mask, g, x_emb = self._forward_encoder(x, x_mask, g)
         # duration predictor pass
         o_dr_log = self.duration_predictor(o_en, x_mask)
         o_dr = self.format_durations(o_dr_log, torch.unsqueeze(x_mask, 1)).squeeze(1)
@@ -707,13 +714,14 @@ class ForwardTTS(BaseTTS):
         if self.args.use_pitch:
             o_pitch_emb, o_pitch = self._forward_pitch_predictor(o_en, x_mask)
             o_en = o_en + o_pitch_emb
-        # energy predictor pass
+        # energy predictor passd
         o_energy = None
         if self.args.use_energy:
             o_energy_emb, o_energy = self._forward_energy_predictor(o_en, x_mask)
             o_en = o_en + o_energy_emb
         # decoder pass
-        o_de, attn = self._forward_decoder(o_en, o_dr, x_mask, y_lengths, g=None)
+        # o_de, attn, o_en_ex_in, o_en_ex_out, y_mask = self._forward_decoder(o_en, o_dr, x_mask, y_lengths, g=None)
+        o_de, attn, o_en_ex_in, o_en_ex_out, y_mask, y_mask_original = self._forward_decoder(o_en, o_dr, x_mask, y_lengths, g=None)
         outputs = {
             "model_outputs": o_de,
             "alignments": attn,
@@ -723,7 +731,7 @@ class ForwardTTS(BaseTTS):
         }
         # return outputs
         print("here: ")
-        return (o_de, attn, o_pitch, o_dr_log)
+        return (o_de, attn, o_pitch, o_dr_log, x_lengths, y_lengths, o_en, x_emb, o_dr, o_pitch_emb, o_en_ex_in, o_en_ex_out, y_mask, y_mask_original, x_mask, x_mask_original)
 
     def train_step(self, batch: dict, criterion: nn.Module):
         text_input = batch["text_input"]
