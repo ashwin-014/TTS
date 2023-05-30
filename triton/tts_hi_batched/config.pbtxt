@@ -1,0 +1,20 @@
+name: "tts_hi_batched"
+backend: "python"
+max_batch_size: 512
+input {
+    name: "INPUT0"
+    data_type: TYPE_STRING
+    dims: [ -1 ]
+  }
+output {
+    name: "OUTPUT0"
+    data_type: TYPE_FP32
+    dims: [ -1 ]
+  }
+
+dynamic_batching { }
+
+# parameters: {
+#   key: "EXECUTION_ENV_PATH",
+#   value: {string_value: "$$TRITON_MODEL_DIRECTORY/tts_env.tar.gz"}
+# }
