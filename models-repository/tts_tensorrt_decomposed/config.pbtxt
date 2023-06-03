@@ -1,0 +1,44 @@
+name: "tts_tensorrt_decomposed"
+backend: "python"
+max_batch_size: 512
+input {
+    name: "TEXT"
+    data_type: TYPE_STRING
+    dims: [ -1 ]
+  }
+output {
+    name: "WAVEFORM"
+    data_type: TYPE_FP32
+    dims: [ -1 ]
+  }
+
+output {
+    name: "WAVEFORM_LENGTH"
+    data_type: TYPE_INT32
+    dims: [ -1 ]
+  }
+
+dynamic_batching { }
+
+#model_warmup [
+#    {
+#        name: "warmup_procedure"
+#        batch_size: 1
+#        inputs: [
+#          {
+#            key: "TEXT"
+#            value: {
+#              data_type: TYPE_STRING
+#              dims: [ 1 ]
+#              input_data_file: "warmup-input"
+#            }
+#          }
+#        ]
+#        count: 5
+#    }
+#]
+
+# parameters: {
+#   key: "EXECUTION_ENV_PATH",
+#   value: {string_value: "$$TRITON_MODEL_DIRECTORY/tts_env.tar.gz"}
+# }

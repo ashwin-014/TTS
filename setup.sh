@@ -5,12 +5,12 @@ docker run -it --gpus all \
     --net=host --rm --name tts_test tts_test /bin/bash;
 
 tritonserver \
-  --model-repository=triton \
+  --model-repository=/priyam-workspace/tts/tts-benchmarking/models-repository \
   --log-verbose 1 \
   --model-control-mode=explicit \
-  --load-model=tts_hi_batched;
+  --load-model=tts_tensorrt_decomposed;
 
 docker run -it --gpus all \
-    -v $(pwd):/app \
+    -v /datadrive/priyam-workspace/tts/:/priyam-workspace/tts \
     --net=host \
     nvcr.io/nvidia/tritonserver:22.12-py3-sdk;
