@@ -168,16 +168,8 @@ def onnx_batch():
     """
     Execution code for onnx models
     """
-    sess_options = ort.SessionOptions()
-    # sess_options.enable_profiling = True
-    sess_options.execution_mode = ort.ExecutionMode.ORT_SEQUENTIAL
-    sess_options.graph_optimization_level = ort.GraphOptimizationLevel.ORT_ENABLE_ALL
-    exproviders = ["CUDAExecutionProvider", "CPUExecutionProvider"]
-
-    # Model init
-    # --------------------------------------
     onnx_model = onnx.load("fastpitch_fp16.onnx")
-    # onnx.checker.check_model(onnx_model)
+    onnx.checker.check_model(onnx_model)
     # model_fp16 = float16.convert_float_to_float16(onnx_model)
     # onnx.save(model_fp16, "fastpitch_fp16.onnx")
     fastpitch_ort_sess = ort.InferenceSession(
@@ -286,4 +278,7 @@ def onnx_batch():
 
 if __name__ == "__main__":
     # batch()
-    onnx_batch()
+    # onnx_batch()
+    onnx_model = onnx.load("../triton/tts_hi_batched/1/models/hififastpitch.onnx")
+    onnx.checker.check_model(onnx_model)
+    print(onnx_model.graph.input, onnx_model.graph.output)

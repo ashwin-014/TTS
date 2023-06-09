@@ -444,7 +444,8 @@ class ForwardTTS(BaseTTS):
             o_en_ex = self.pos_encoder(o_en_ex, y_mask)
         # decoder pass
         o_de = self.decoder(o_en_ex, y_mask, g=g)
-        return o_de.transpose(1, 2), attn.transpose(1, 2)
+        return o_de, attn
+        # return o_de.transpose(1, 2), attn.transpose(1, 2)
 
     def _forward_pitch_predictor(
         self,
