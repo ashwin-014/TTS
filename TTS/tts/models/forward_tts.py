@@ -667,8 +667,8 @@ class ForwardTTS(BaseTTS):
         return outputs
 
     @torch.no_grad()
-    # def inference(self, x, aux_input={"d_vectors": None, "speaker_ids": None}):  # pylint: disable=unused-argument
-    def inference(self, x, speaker_id=None, d_vectors=None):  # pylint: disable=unused-argument
+    def inference(self, x, aux_input={"d_vectors": None, "speaker_ids": None}):  # pylint: disable=unused-argument
+    # def inference(self, x, speaker_id=None, d_vectors=None):  # pylint: disable=unused-argument
         """Model's inference pass.
 
         Args:
@@ -680,7 +680,7 @@ class ForwardTTS(BaseTTS):
             - x_lengths: [B]
             - g: [B, C]
         """
-        aux_input = {"d_vectors": d_vectors, "speaker_ids": speaker_id}
+        # aux_input = {"d_vectors": d_vectors, "speaker_ids": speaker_id}
         g = self._set_speaker_input(aux_input)
 
         # ----- Batching support -----

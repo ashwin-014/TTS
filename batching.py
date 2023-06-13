@@ -276,9 +276,76 @@ def onnx_batch():
     save_wav(wav=wav, path="output.wav", sample_rate=22050)
 
 
+def export_vocoders_for_lang(lang):
+
+    import os
+    import json
+    import tempfile
+
+    checkpoint_folder = f"~/tts/deployment/models/indo_aryan/{lang}"
+    tts_config_path = os.path.join(checkpoint_folder, "fastpitch/config.json")
+    tts_config = json.load(open(tts_config_path))
+    speakers_file = tts_config_path.replace("config.json", "speakers.pth")
+    tts_config["model_args"]["speakers_file"] = speakers_file
+    tts_config["speakers_file"] = speakers_file
+
+    # Write the config file to a temporary path so that we can pass it to the Synthesizer class
+    patched_tts_config_file = tempfile.NamedTemporaryFile(suffix=".json", mode='w', encoding='utf-8', delete=False)
+    patched_tts_config_file.write(json.dumps(tts_config))
+    patched_tts_config_file.close()
+
+    tts = TTS(
+        model_path=f"{checkpoint_folder}/fastpitch/best_model.pth",
+        config_path=patched_tts_config_file.name,
+        vocoder_path=f"{checkpoint_folder}/hifigan/best_model.pth",
+        vocoder_config_path=f"{checkpoint_folder}/hifigan/config.json",
+        progress_bar=True,
+        gpu=True,
+    )
+    texts = {
+        "as": "",
+        "hi": "मेरा. नाम भारत हैं. नमस्ते आपका नाम हैं",
+        "bn": "",
+        "gu": "",
+        "mr": "",
+        "or": "",
+        "pa": "",
+        "raj": "",
+    }
+    seg = pysbd.Segmenter(language="en", clean=True)
+
+    start = time.time()
+    sens = seg.segment(texts[lang])
+    print(" > Text splitted to sentences.")
+    print(sens)
+
+    wavs, _ = tts.tts(text=sens, speaker=tts.speakers[0])
+    for j, wav in enumerate(wavs):
+        wav = np.array(wav)
+        # print(wav, wav.shape)
+        # wav = wav[~np.isnan(wav)]
+        wav = wav[wav != -1]
+        print(wav, wav.shape)
+        save_wav(wav=wav, path=f"outputs/output_{lang}_{j}.wav", sample_rate=22050)
+    print(f"done in {time.time() - start}")
+
+
 if __name__ == "__main__":
     # batch()
     # onnx_batch()
-    onnx_model = onnx.load("../triton/tts_hi_batched/1/models/hififastpitch.onnx")
-    onnx.checker.check_model(onnx_model)
-    print(onnx_model.graph.input, onnx_model.graph.output)
+    # onnx_model = onnx.load("../triton/tts_hi_batched/1/models/hififastpitch.onnx")
+    # onnx.checker.check_model(onnx_model)
+    # print(onnx_model.graph.input, onnx_model.graph.output)
+
+    langs = [
+        "as",
+        "hi",
+        "bn",
+        "gu",
+        "mr",
+        "or",
+        "pa",
+        "raj",
+    ]
+    for lang in langs:
+        export_vocoders_for_lang(lang)

@@ -1,4 +1,4 @@
-FROM nvcr.io/nvidia/tritonserver:23.04-py3
+FROM nvcr.io/nvidia/tritonserver:22.12-py3
 
 RUN mkdir /app
 WORKDIR /app
@@ -10,9 +10,12 @@ RUN apt install -y libsndfile1-dev ffmpeg enchant
 
 # RUN sh trt_install.sh
 
-RUN pip3 install ai4bharat-transliteration ffmpeg translators indic-numtowords nemo-text-processing pyenchant pydantic pandas ./aksharamukha-python TTS
-RUN pip3 install webrtcvad onnxconverter_common setuptools==59.5.0 "accelerate>=0.16.0,<1" "optimum[onnxruntime-gpu]" "transformers[torch]>=4.28.1,<5" "bitsandbytes>=0.31.5" "torch>=1.13.1,<2" torchaudio
+RUN pip3 install ai4bharat-transliteration ffmpeg translators indic-numtowords nemo-text-processing pyenchant pydantic pandas ./aksharamukha-python
 RUN pip3 install -r TTS/requirements.txt
+RUN pip3 install setuptools==59.5.0 onnxruntime-gpu "torch>=1.13.1,<2" torchaudio
+#  ./TTS/ --upgrade protobuf
+# RUN pip3 install webrtcvad setuptools==59.5.0 "accelerate>=0.16.0,<1" "optimum[onnxruntime-gpu]" "transformers[torch]>=4.28.1,<5" "bitsandbytes>=0.31.5" "torch>=1.13.1,<2" torchaudio onnxconverter_common
+
 
 # RUN python -m pip install "git+https://github.com/huggingface/optimum.git#egg=optimum[onnxruntime-gpu]"
 # RUN git clone https://github.com/libindic/indic-trans.git && cd indic-trans && pip install -r requirements.txt && pip install .
