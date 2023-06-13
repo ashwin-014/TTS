@@ -5,7 +5,6 @@ import numpy as np
 import pysbd
 import torch
 
-# import onnx
 import os
 import torch
 import onnxruntime as ort
@@ -190,9 +189,6 @@ class Synthesizer(object):
         if use_cuda:
             self.vocoder_model.cuda()
 
-        # onnx_model = onnx.load("vocoder.onnx")
-        # onnx.checker.check_model(onnx_model)
-        
         providers = [
             ('CUDAExecutionProvider', {
                 "cudnn_conv_use_max_workspace": '1'
@@ -200,9 +196,9 @@ class Synthesizer(object):
         ]
         sess_options = ort.SessionOptions()
         sess_options.graph_optimization_level = ort.GraphOptimizationLevel.ORT_ENABLE_ALL
-        # onnx_model_path = os.path.join(os.path.dirname(model_file), "vocoder_fp16.onnx")
-        # self.vocoder_ort_sess = ort.InferenceSession(
-        #     onnx_model_path, sess_options=sess_options, providers=providers)
+        onnx_model_path = os.path.join(os.path.dirname(model_file), "vocoder_fp16.onnx")
+        self.vocoder_ort_sess = ort.InferenceSession(
+            onnx_model_path, sess_options=sess_options, providers=providers)
 
     def split_into_sentences(self, text) -> List[str]:
         """Split give text into sentences.
@@ -337,8 +333,6 @@ class Synthesizer(object):
 
         # synthesize voice
         if not reference_wav:
-            torch.cuda.synchronize()
-            st = time.time()
             outputs = synthesis(
                 model=self.tts_model,
                 text=sens,
@@ -351,105 +345,30 @@ class Synthesizer(object):
                 d_vector=speaker_embedding,
                 language_id=language_id,
             )
-            torch.cuda.synchronize()
-            print(f"> fastpitch: {time.time() - st}")
-            # waveform = outputs["wav"]
 
             if not use_gl:
-                torch.cuda.synchronize()
-                st = time.time()
                 device_type = "cuda" if self.use_cuda else "cpu"
-                # waveform = self.vocoder_model.inference(outputs["outputs"]["model_outputs"].to(device_type))  # 
-                # print("vc input shape: ", outputs["outputs"]["model_outputs"].shape)
-                # print("vc output shape: ", waveform.shape)
-                # waveform = self.vocoder_ort_sess.run(None, {'vocoder_inputs': outputs["outputs"]["model_outputs"].cpu().numpy().astype(np.float16)})
-                # waveform = waveform[0]
-                # print("waveform shape: ", waveform[0].shape)
-
-                import os
-                checkpoint_folder = f"./onnx"
-                torch.onnx.export(
-                    model=self.vocoder_model,
-                    args=(outputs["outputs"]["model_outputs"],),
-                    f=os.path.join(checkpoint_folder, "vocoder.onnx"),
-                    export_params=True,
-                    opset_version=17,
-                    do_constant_folding=True,
-                    input_names=['vocoder_inputs'],
-                    output_names=['vocoder_outputs'],
-                    dynamic_axes={
-                        'vocoder_inputs': {0: 'batch_size', 2: 'T'},
-                        'vocoder_outputs': {0: 'batch_size', 2: 'V_T'}
-                    },
-                    verbose=True,
-                )
-                import onnx
-                import onnxruntime as ort
-                from onnxconverter_common import float16
-
-                onnx_model = onnx.load(os.path.join(checkpoint_folder, "vocoder.onnx"))
-                onnx.checker.check_model(onnx_model)
-                model_fp16 = float16.convert_float_to_float16(onnx_model)
-                onnx.save(model_fp16, os.path.join(checkpoint_folder, "vocoder_fp16.onnx"))
-                ort_sess = ort.InferenceSession(os.path.join(checkpoint_folder, "vocoder_fp16.onnx"),providers=["CUDAExecutionProvider"])
-                waveform = ort_sess.run(None, {'vocoder_inputs': outputs["outputs"]["model_outputs"].cpu().numpy().astype(np.float16)})
+                waveform = self.vocoder_ort_sess.run(None, {'vocoder_inputs': outputs["outputs"]["model_outputs"].cpu().numpy().astype(np.float16)})
                 waveform = waveform[0]
-                # print("waveform shape: ", waveform[0].shape)
 
-                torch.cuda.synchronize()
-                print(f"> vocoder: {time.time() - st}")
-
-                st = time.time()
                 # pad of 5 mel frames before and after
                 # hops * mel frames = length of audio
-                sst = time.time()
                 attn = torch.sum(outputs["outputs"]["alignments"], dim=(-1, -2))
-                print(f"> sum: {time.time() - sst}")
                 # TODO: get a permanent solution ta a mask level to silence 5 mel frames
                 attn = attn - 5
-                sst = time.time()
-                multiplier = waveform.shape[2] / attn.max()
-                print(f"> multiplier: {time.time() - sst}")
-                sst = time.time()
-                multiplier = multiplier.int()
-                print(f"> multiplier int: {time.time() - sst}")
-                attn = attn * multiplier
-                print(f"> ele wise: {time.time() - sst}")
-                attn = attn.int()
-                sst = time.time()
-                waveform = waveform.squeeze(1)
-                # attn = attn.cpu().numpy()
-                sst = time.time()
-                torch.cuda.synchronize()
-                print(f"> sync: {time.time() - sst}")
-                sst = time.time()
-                # waveform = waveform.cpu().numpy()
-                print(f"> squeeze and cpu: {time.time() - sst}")
 
-                sst = time.time()
+                multiplier = waveform.shape[2] / attn.max()
+                multiplier = multiplier.int()
+                attn = attn * multiplier
+                attn = attn.int()
+                waveform = waveform.squeeze(1)
+
                 for i, wave in enumerate(waveform):
-                    # waveform[i, attn[i]:] = np.inf
-                    waveform[i, attn[i]:] = -1
-                print(f"> set to inf: {time.time() - sst}")
+                    waveform[i, attn[i]:] = -1000
 
                 waveform = np.concatenate((waveform, np.zeros((waveform.shape[0], 10000))), axis=1)
-                print(f"> cutting: {time.time() - st}")
                 return waveform, attn
 
-            # if self.use_cuda and not use_gl:
-            #     waveform = waveform.cpu()
-            # if not use_gl:
-            #     waveform = waveform.numpy()
-
-            # for i, wave in enumerate(waveform):
-            #     # trim silence
-            #     if "do_trim_silence" in self.tts_config.audio and self.tts_config.audio["do_trim_silence"]:
-            #         wave = trim_silence(wave, self.tts_model.ap)
-
-            #     wave = wave.squeeze()[:attn[i]]
-            #     wave = wave.squeeze()
-            #     wavs += list(wave)
-            #     wavs += [0] * 10000
         else:
             # get the speaker embedding or speaker id for the reference wav file
             reference_speaker_embedding = None

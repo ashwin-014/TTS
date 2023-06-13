@@ -202,9 +202,7 @@ def synthesis(
 
     # pass tensors to backend
     if speaker_id is not None:
-        print("speaker_id: ", speaker_id)
         speaker_id = id_to_torch(speaker_id, cuda=use_cuda)
-        print("speaker_id: ", speaker_id)
 
     if d_vector is not None:
         d_vector = embedding_to_torch(d_vector, cuda=use_cuda)
