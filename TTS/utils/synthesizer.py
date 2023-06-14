@@ -351,6 +351,8 @@ class Synthesizer(object):
                 waveform = self.vocoder_ort_sess.run(None, {'vocoder_inputs': outputs["outputs"]["model_outputs"].cpu().numpy().astype(np.float16)})
                 waveform = waveform[0]
 
+                # waveform = self.vocoder_model.inference(outputs["outputs"]["model_outputs"])
+
                 # pad of 5 mel frames before and after
                 # hops * mel frames = length of audio
                 attn = torch.sum(outputs["outputs"]["alignments"], dim=(-1, -2))
@@ -362,9 +364,10 @@ class Synthesizer(object):
                 attn = attn * multiplier
                 attn = attn.int()
                 waveform = waveform.squeeze(1)
+                # waveform = waveform.cpu().numpy()
 
                 for i, wave in enumerate(waveform):
-                    waveform[i, attn[i]:] = -1000
+                    waveform[i, attn[i]:] = -100
 
                 waveform = np.concatenate((waveform, np.zeros((waveform.shape[0], 10000))), axis=1)
                 return waveform, attn

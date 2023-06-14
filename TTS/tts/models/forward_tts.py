@@ -719,7 +719,6 @@ class ForwardTTS(BaseTTS):
             "durations_log": o_dr_log,
         }
         # return outputs
-        print("here: ")
         return (o_de, attn, o_pitch, o_dr_log)
 
     def train_step(self, batch: dict, criterion: nn.Module):
