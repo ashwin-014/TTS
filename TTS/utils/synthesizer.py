@@ -368,6 +368,8 @@ class Synthesizer(object):
                 # waveform = waveform.cpu().numpy()
 
                 for i, wave in enumerate(waveform):
+                    wave_norm = wave[0:attn[i]] * (32767 / max(0.01, np.max(np.abs(wave[0:attn[i]]))))
+                    waveform[i, 0:attn[i]] = wave_norm
                     waveform[i, attn[i]:] = -100
 
                 waveform = np.concatenate((waveform, np.zeros((waveform.shape[0], 10000))), axis=1)
