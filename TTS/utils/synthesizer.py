@@ -185,9 +185,9 @@ class Synthesizer(object):
         self.vocoder_config = load_config(model_config)
         self.vocoder_ap = AudioProcessor(verbose=False, **self.vocoder_config.audio)
         self.vocoder_model = setup_vocoder_model(self.vocoder_config)
-        self.vocoder_model.load_checkpoint(self.vocoder_config, model_file, eval=True)
-        if use_cuda:
-            self.vocoder_model.cuda()
+        # self.vocoder_model.load_checkpoint(self.vocoder_config, model_file, eval=True)
+        # if use_cuda:
+        #     self.vocoder_model.cuda()
 
         providers = [
             ('CUDAExecutionProvider', {
@@ -329,7 +329,8 @@ class Synthesizer(object):
         if speaker_wav is not None:
             speaker_embedding = self.tts_model.speaker_manager.compute_embedding_from_clip(speaker_wav)
 
-        use_gl = self.vocoder_model is None
+        # use_gl = self.vocoder_model is None
+        use_gl = self.vocoder_ort_sess is None
 
         # synthesize voice
         if not reference_wav:

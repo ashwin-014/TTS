@@ -74,7 +74,8 @@ class TTSTokenizer:
                 if char not in self.not_found_characters:
                     self.not_found_characters.append(char)
                     # print(text)
-                    print(f" [!] Character {repr(char)} not found in the vocabulary. Discarding it.")
+                    # print(f" [!] Character {repr(char)} not found in the vocabulary. Discarding it.")
+                    print(f" [!] Some characters not found in the vocabulary. Discarding them.")
         return token_ids
 
     def decode(self, token_ids: List[int]) -> str:
