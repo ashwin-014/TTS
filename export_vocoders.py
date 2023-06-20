@@ -58,7 +58,7 @@ def export_vocoders_for_lang(lang):
         "ml": "സുപ്രഭാതം, എങ്ങനെയുണ്ട്?",
         "mni": "ꯒꯨꯗ ꯃꯣꯔꯅꯤꯡ ꯀꯔꯝ ꯇꯧꯒꯦ",
         "brx": "गुड मर्निं, नों बोरै?",
-        "en": "Good morning, how are you?"
+        "en+hi": "Good morning, how are you?"
     }
     input_text = texts[lang]
     seg = pysbd.Segmenter(language="en", clean=True)
@@ -111,9 +111,9 @@ if __name__ == "__main__":
         # "kn",
         # "ml",
         # "te",
-        "mni",
+        # "mni",
         # "brx",
-        # "en"
+        "en+hi"
     ]
     for lang in langs:
         export_vocoders_for_lang(lang)
