@@ -185,20 +185,20 @@ class Synthesizer(object):
         self.vocoder_config = load_config(model_config)
         self.vocoder_ap = AudioProcessor(verbose=False, **self.vocoder_config.audio)
         self.vocoder_model = setup_vocoder_model(self.vocoder_config)
-        # self.vocoder_model.load_checkpoint(self.vocoder_config, model_file, eval=True)
-        # if use_cuda:
-        #     self.vocoder_model.cuda()
+        self.vocoder_model.load_checkpoint(self.vocoder_config, model_file, eval=True)
+        if use_cuda:
+            self.vocoder_model.cuda()
 
-        providers = [
-            ('CUDAExecutionProvider', {
-                # "cudnn_conv_use_max_workspace": '1'
-            })
-        ]
-        sess_options = ort.SessionOptions()
-        sess_options.graph_optimization_level = ort.GraphOptimizationLevel.ORT_ENABLE_ALL
-        onnx_model_path = os.path.join(os.path.dirname(model_file), "vocoder_fp16.onnx")
-        self.vocoder_ort_sess = ort.InferenceSession(
-            onnx_model_path, sess_options=sess_options, providers=providers)
+        # providers = [
+        #     ('CUDAExecutionProvider', {
+        #         # "cudnn_conv_use_max_workspace": '1'
+        #     })
+        # ]
+        # sess_options = ort.SessionOptions()
+        # sess_options.graph_optimization_level = ort.GraphOptimizationLevel.ORT_ENABLE_ALL
+        # onnx_model_path = os.path.join(os.path.dirname(model_file), "vocoder_fp16.onnx")
+        # self.vocoder_ort_sess = ort.InferenceSession(
+        #     onnx_model_path, sess_options=sess_options, providers=providers)
 
     def split_into_sentences(self, text) -> List[str]:
         """Split give text into sentences.
@@ -329,8 +329,8 @@ class Synthesizer(object):
         if speaker_wav is not None:
             speaker_embedding = self.tts_model.speaker_manager.compute_embedding_from_clip(speaker_wav)
 
-        # use_gl = self.vocoder_model is None
-        use_gl = self.vocoder_ort_sess is None
+        use_gl = self.vocoder_model is None
+        # use_gl = self.vocoder_ort_sess is None
 
         # synthesize voice
         if not reference_wav:
@@ -349,23 +349,23 @@ class Synthesizer(object):
 
             if not use_gl:
                 device_type = "cuda" if self.use_cuda else "cpu"
-                waveform = self.vocoder_ort_sess.run(None, {'vocoder_inputs': outputs["outputs"]["model_outputs"].cpu().numpy().astype(np.float16)})
-                waveform = waveform[0]
+                # waveform = self.vocoder_ort_sess.run(None, {'vocoder_inputs': outputs["outputs"]["model_outputs"].cpu().numpy().astype(np.float16)})
+                # waveform = waveform[0]
 
-                # waveform = self.vocoder_model.inference(outputs["outputs"]["model_outputs"])
+                waveform = self.vocoder_model.inference(outputs["outputs"]["model_outputs"])
 
                 # pad of 5 mel frames before and after
                 # hops * mel frames = length of audio
                 attn = torch.sum(outputs["outputs"]["alignments"], dim=(-1, -2))
                 # TODO: get a permanent solution ta a mask level to silence 5 mel frames
-                attn = attn - 5
+                attn = attn - 20
 
                 multiplier = waveform.shape[2] / attn.max()
                 multiplier = multiplier.int()
                 attn = attn * multiplier
                 attn = attn.int()
                 waveform = waveform.squeeze(1)
-                # waveform = waveform.cpu().numpy()
+                waveform = waveform.cpu().numpy()
 
                 for i, wave in enumerate(waveform):
                     # wave_norm = wave[0:attn[i]] * (32767 / max(0.01, np.max(np.abs(wave[0:attn[i]]))))
