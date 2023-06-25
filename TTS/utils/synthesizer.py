@@ -353,19 +353,20 @@ class Synthesizer(object):
                 # waveform = waveform[0]
 
                 waveform = self.vocoder_model.inference(outputs["outputs"]["model_outputs"])
+                with torch.no_grad():
 
-                # pad of 5 mel frames before and after
-                # hops * mel frames = length of audio
-                attn = torch.sum(outputs["outputs"]["alignments"], dim=(-1, -2))
-                # TODO: get a permanent solution ta a mask level to silence 5 mel frames
-                attn = attn - 20
+                    # pad of 5 mel frames before and after
+                    # hops * mel frames = length of audio
+                    attn = torch.sum(outputs["outputs"]["alignments"], dim=(-1, -2))
+                    # TODO: get a permanent solution ta a mask level to silence 5 mel frames
+                    attn = attn - 20
 
-                multiplier = waveform.shape[2] / attn.max()
-                multiplier = multiplier.int()
-                attn = attn * multiplier
-                attn = attn.int()
-                waveform = waveform.squeeze(1)
-                waveform = waveform.cpu().numpy()
+                    multiplier = waveform.shape[2] / attn.max()
+                    multiplier = multiplier.int()
+                    attn = attn * multiplier
+                    attn = attn.int()
+                    waveform = waveform.squeeze(1)
+                    waveform = waveform.cpu().numpy()
 
                 for i, wave in enumerate(waveform):
                     # wave_norm = wave[0:attn[i]] * (32767 / max(0.01, np.max(np.abs(wave[0:attn[i]]))))
